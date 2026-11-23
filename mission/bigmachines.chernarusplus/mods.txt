@@ -1,0 +1,3 @@
+# <workshop id> <@Name>, in load order. Ours is built locally from mods/BigMachines (a symlink
+# to ~/Projects/DayZBigMachines/build/BigMachines, staged by tools/build.sh there).
+local @BigMachines

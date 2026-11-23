@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<modded_inputs>
+	<inputs>
+		<actions>
+			<input name="UABMBladeUp" loc="Big machines: raise blade / boom" />
+			<input name="UABMBladeDown" loc="Big machines: lower blade / boom" />
+		</actions>
+		<sorting name="bigmachines" loc="Big Machines">
+			<input name="UABMBladeUp" />
+			<input name="UABMBladeDown" />
+		</sorting>
+	</inputs>
+	<preset>
+		<input name="UABMBladeUp">
+			<btn name="kPrior" />
+		</input>
+		<input name="UABMBladeDown">
+			<btn name="kNext" />
+		</input>
+	</preset>
+</modded_inputs>
