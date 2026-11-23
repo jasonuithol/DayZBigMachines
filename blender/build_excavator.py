@@ -29,11 +29,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import crawler  # noqa: E402
 import rv  # noqa: E402
 import bpy  # noqa: E402
+from mathutils import Matrix  # noqa: E402
 from rv import MeshBuilder, X_AXIS_ROT  # noqa: E402
 
 MODEL_DIR = os.path.join(crawler.ROOT, "BigMachines", "excavator")
 TRACKS = crawler.Tracks(x=1.20, width=0.60, wheelbase=3.0, radius=0.36, thickness=0.07,
-                        roller_path="BigMachines\\excavator\\proxy\\bm_exc_roller.p3d", roller_vis_r=0.34)
+                        roller_path="BigMachines\\excavator\\proxy\\bm_exc_roller.p3d")
 BATTERY_POS = (0.0, 0.92, 0.62)     # on the front of the car body, between the tracks
 
 UNDER = ("undercarriage",)           # the bone for everything below the slewing ring
@@ -53,14 +54,17 @@ STICK_TOP = (5.3, 4.3)              # stick lever: the stick cylinder's mount
 BUCKET_PIN = (6.2, 1.2)             # bucket pivot, bottom of the stick
 BOOM_CYL = ((1.45, 1.35), (2.7, 2.8))    # base on the house, mount on the boom
 STICK_CYL = ((2.7, 3.95), STICK_TOP)     # base on a bracket on the boom, mount on the stick
-BUCKET_CYL = ((5.4, 3.3), (5.95, 1.55))  # base on the stick, mount on the bucket
+BUCKET_CYL = ((5.85, 3.35), (6.55, 1.5))  # base on the stick's outer face, mount on the bucket
 
-# Joint ranges (degrees; + raises the boom, swings the stick out, curls the bucket) and
-# speeds (phase per second: config animPeriod is 1 / speed)
+# Joints: (angle at phase 0, angle at phase 1, speed). Angles in degrees from the modelled
+# pose, + turning the part's far end up-and-out in the (y, z) plane (counter-clockwise seen
+# from +X): phase 1 raises the boom, swings the stick out and curls the bucket. The bucket's
+# teeth face the machine, so curling turns it the other way (-). Speed: phase per second
+# (config animPeriod is 1 / speed).
 JOINTS = {
     "boom": (-35, 30, 0.20),
     "stick": (-45, 40, 0.20),
-    "bucket": (-70, 55, 0.25),
+    "bucket": (35, -95, 0.25),
 }
 
 MASSES = {
@@ -69,7 +73,8 @@ MASSES = {
     "m_boom": 1600, "m_stick": 800, "m_bucket": 700,
 }
 
-YELLOW, DARK, RUBBER, SEAT, CHROME, GLASS = 0, 1, 2, 3, 4, 5
+YELLOW, DARK, RUBBER, SEAT, CHROME, GLASS, LENS, BEACON = range(8)
+LOGO, STRIPE, LETTERS, HAZARD, BADGE = range(8, 13)     # livery decals (crawler.decal_materials)
 
 
 def materials():
@@ -88,6 +93,8 @@ def materials():
         rv.color_material("seat_vinyl", (0.06, 0.06, 0.06), 0.7, 0.0),
         rv.color_material("cylinder_chrome", (0.70, 0.70, 0.72), 0.25, 1.0),
         glass,
+        *crawler.detail_materials(),
+        *crawler.decal_materials("bm_badge_exc_ca"),
     ]
 
 
@@ -110,14 +117,21 @@ def counterweight_outline():
     return pts + [(pts[-1][0], -1.6), (pts[0][0], -1.6)]
 
 
-BUCKET_OUTER = [(5.95, 1.45), (5.88, 0.85), (6.0, 0.45), (6.3, 0.22), (6.75, 0.22), (7.1, 0.42)]
+def facing_in(points):
+    """(y, z) points mirrored about the bucket pin: drawn facing out, a bucket faces in"""
+    return [(2 * BUCKET_PIN[0] - y, z) for y, z in points]
+
+
+# The bucket's back plate, from its top behind the pin down round to the teeth, which point
+# back towards the machine (a backhoe bucket)
+BUCKET_OUTER = facing_in([(5.95, 1.45), (5.88, 0.85), (6.0, 0.45), (6.3, 0.22), (6.75, 0.22), (7.1, 0.42)])
 
 
 def bucket_shell():
-    """Closed (y, z) profile of the bucket's curved back plate, 6 cm thick, open to the front"""
+    """Closed (y, z) profile of the bucket's curved back plate, 6 cm thick, open to the machine"""
     inner = []
     for (y, z) in BUCKET_OUTER:
-        inner.append((y + 0.05, z + 0.05))
+        inner.append((y - 0.05, z + 0.05))
     return BUCKET_OUTER + list(reversed(inner))
 
 
@@ -135,11 +149,16 @@ def build_visual(mats):
     b.box_between((-1.25, -1.6, DECK_Z), (1.25, 1.25, FLOOR_Z), YELLOW, S)
     b.box_between((-1.25, -1.6, FLOOR_Z), (1.25, CAB[1], 2.1), YELLOW, S)
     b.prism_z(counterweight_outline(), DECK_Z, 2.1, YELLOW, S)
-    b.box_between((-0.9, -1.3, 2.1), (0.4, -0.7, 2.14), DARK, S)                 # engine grille
-    b.cylinder(0.06, 0.55, (0.75, -1.0, 2.35), DARK, S, segments=10)              # exhaust
+    house_details(b, S)
     # Cab, front left: lower panels, glass, corner posts, roof
     x0, y0, x1, y1 = CAB
-    b.box_between((x0, y0, FLOOR_Z), (x1, y1, 1.8), YELLOW, S)
+    # lower panels: a shell round the seat and the driver's legs, on a floor plate
+    w = 0.04
+    b.box_between((x0, y0, FLOOR_Z), (x0 + w, y1, 1.8), YELLOW, S)
+    b.box_between((x1 - w, y0, FLOOR_Z), (x1, y1, 1.8), YELLOW, S)
+    b.box_between((x0 + w, y0, FLOOR_Z), (x1 - w, y0 + w, 1.8), YELLOW, S)
+    b.box_between((x0 + w, y1 - w, FLOOR_Z), (x1 - w, y1, 1.8), YELLOW, S)
+    b.box_between((x0 + w, y0 + w, FLOOR_Z), (x1 - w, y1 - w, FLOOR_Z + 0.02), DARK, S)
     b.box_between((x0 + 0.03, y0 + 0.03, 1.8), (x1 - 0.03, y1 - 0.03, 2.85), GLASS, S)
     for x in (x0 + 0.04, x1 - 0.04):
         for y in (y0 + 0.04, y1 - 0.04):
@@ -172,18 +191,135 @@ def build_visual(mats):
     b.prism_x(bucket_shell(), -0.5, 0.5, DARK, "bucket")
     for side in (-1, 1):
         x0b, x1b = sorted((side * 0.5, side * 0.54))
-        b.prism_x(BUCKET_OUTER + [(6.2, 1.45)], x0b, x1b, YELLOW, "bucket")
+        b.prism_x(BUCKET_OUTER + [(BUCKET_PIN[0], 1.45)], x0b, x1b, YELLOW, "bucket")
     for i in range(5):
         x = -0.4 + 0.2 * i
-        b.box_between((x - 0.04, 7.05, 0.36), (x + 0.04, 7.25, 0.44), DARK, "bucket")
+        b.box_between((x - 0.04, 5.15, 0.36), (x + 0.04, 5.35, 0.44), DARK, "bucket")
+    # lug for the bucket cylinder, on top of the bucket; bracket for its base on the stick
+    b.box_between((-0.07, BUCKET_CYL[1][0] - 0.1, 1.4), (0.07, BUCKET_CYL[1][0] + 0.06, 1.56), DARK, "bucket")
+    b.box_between((-0.07, 5.72, BUCKET_CYL[0][1] - 0.12), (0.07, BUCKET_CYL[0][0] + 0.04, BUCKET_CYL[0][1] + 0.08),
+                  DARK, "stick")
 
-    # Cylinders: boom (two, either side of the boom), stick (on top), bucket (behind the stick)
+    # Cylinders: boom (two, either side of the boom), stick (on top), bucket (on the stick's
+    # outer face). Barrel + rod cover the longest stroke (see the rod offsets printed below)
     for x in (-0.36, 0.36):
-        crawler.cylinder(b, x, *BOOM_CYL, 0.95, 1.05, DARK, CHROME, "boom_cyl", "boom", barrel_r=0.09, rod_r=0.05)
-    crawler.cylinder(b, 0.0, *STICK_CYL, 1.3, 1.45, DARK, CHROME, "stick_cyl", "stick", barrel_r=0.09, rod_r=0.05)
-    crawler.cylinder(b, 0.0, *BUCKET_CYL, 0.95, 1.0, DARK, CHROME, "bucket_cyl", "bucket")
+        crawler.cylinder(b, x, *BOOM_CYL, 0.95, 1.35, DARK, CHROME, "boom_cyl", "boom_rod", barrel_r=0.09,
+                         rod_r=0.05)
+    crawler.cylinder(b, 0.0, *STICK_CYL, 1.45, 1.95, DARK, CHROME, "stick_cyl", "stick_rod", barrel_r=0.09,
+                     rod_r=0.05)
+    crawler.cylinder(b, 0.0, *BUCKET_CYL, 1.4, 1.5, DARK, CHROME, "bucket_cyl", "bucket_rod")
 
+    arm_livery(b)
     return b.to_object("Excavator_LOD1", mats)
+
+
+HOUSE_TOP = 2.1
+HOOD_Y = (-1.6, CAB[1])             # engine housing: between the counterweight and the cab
+
+
+def side_walls(b, S):
+    """The house's left and right faces, s running front to back on the left (as seen from
+    outside) and back to front on the right"""
+    left = rv.Wall(b, (-1.25, 0, 0), (0, -1, 0), (0, 0, 1), S)
+    right = rv.Wall(b, (1.25, 0, 0), (0, 1, 0), (0, 0, 1), S)
+    return left, right
+
+
+def house_details(b, S):
+    """Engine hood, access doors, grilles, exhaust, rails, lights and the house's livery"""
+    y0, y1 = HOOD_Y
+    # Hood (seen from above, front up): engine hatch with a louvred grille, a second hatch,
+    # air cleaner, muffler and exhaust stack
+    top = rv.Wall(b, (0, 0, HOUSE_TOP), (1, 0, 0), (0, 1, 0), S)
+    top.door(-1.05, -1.5, 0.45, -0.55, DARK, hinge="top")
+    top.grille(-0.95, -1.35, 0.3, -0.72, DARK, YELLOW)
+    top.seams(0.55, -1.5, 1.15, -0.55, DARK)
+    b.cylinder(0.09, 0.22, (0.85, -0.75, HOUSE_TOP + 0.11), DARK, S, segments=14)
+    b.cylinder(0.1, 0.06, (0.85, -0.75, HOUSE_TOP + 0.25), DARK, S, segments=14, radius2=0.05)
+    b.box_between((0.62, -1.2, HOUSE_TOP), (0.98, -0.88, HOUSE_TOP + 0.14), DARK, S)
+    b.cylinder(0.055, 0.5, (0.75, -1.03, HOUSE_TOP + 0.38), DARK, S, segments=10)
+    b.cylinder(0.08, 0.26, (0.75, -1.03, HOUSE_TOP + 0.33), DARK, S, segments=10)
+    b.cylinder(0.075, 0.012, (0.75, -1.01, HOUSE_TOP + 0.65), DARK, S, segments=10,
+               rot=Matrix.Rotation(math.radians(25), 4, "X"))                  # rain cap
+    # Handrail along the right edge of the hood and the tank
+    for y in (-1.45, -0.5, 0.45, 1.1):
+        z = HOUSE_TOP if y < CAB[1] else 2.0
+        b.rod((1.18, y, z), (1.18, y, 2.45), 0.018, YELLOW, S)
+    b.rod((1.18, -1.45, 2.45), (1.18, 1.1, 2.45), 0.018, YELLOW, S)
+
+    left, right = side_walls(b, S)
+    zd0, zd1 = FLOOR_Z + 0.08, HOUSE_TOP - 0.1
+    # Left, behind the cab: two doors, the rear one over the engine's air intake
+    l0, l1 = -y1, -y0                   # s range of the engine housing on the left
+    left.door(l0 + 0.05, zd0, l0 + 0.5, zd1, DARK, hinge="left")
+    left.door(l0 + 0.55, zd0, l1 - 0.05, zd1, DARK, hinge="right")
+    left.grille(l0 + 0.65, zd0 + 0.15, l1 - 0.2, zd1 - 0.15, DARK, YELLOW)
+    # Right: the radiator behind a mesh door at the back, a pump door, the tank's toolbox
+    right.door(y0 + 0.05, zd0, y0 + 0.62, zd1, DARK, hinge="left")
+    right.mesh(y0 + 0.13, zd0 + 0.12, y0 + 0.54, zd1 - 0.12, DARK, YELLOW)
+    right.door(y0 + 0.67, zd0, y1 - 0.05, zd1, DARK, hinge="right")
+    right.door(y1 + 0.1, zd0, y1 + 0.75, 1.75, DARK, hinge="top")
+    right.plate(y1 + 1.0, 1.4, y1 + 1.06, 1.8, 0.02, DARK)              # hydraulic oil sight gauge
+    right.decal(y1 + 1.25, 1.88, 0.5, 0.125, BADGE)
+    b.cylinder(0.06, 0.05, (0.95, 0.95, 2.02), DARK, S, segments=12)   # fuel cap
+    # Livery: a black band with a red pinstripe along both sides under the hood line
+    band = (0.3, 0.06, 1.0, 0.3)
+    left.decal((l0 + l1) / 2, HOUSE_TOP - 0.045, l1 - l0, 0.05, STRIPE, uv=band)
+    right.decal((y0 + y1) / 2, HOUSE_TOP - 0.045, y1 - y0, 0.05, STRIPE, uv=band)
+
+    # Grab handle up the tank's front right corner (steps would hang over the track)
+    b.rod((1.2, 1.24, 1.4), (1.2, 1.24, 1.95), 0.016, DARK, S)
+    for z in (1.4, 1.95):
+        b.rod((1.2, 1.2, z), (1.2, 1.26, z), 0.014, DARK, S)
+    # Front: the logo plate on the tank; work lights under the cab roof; a beacon on it
+    front = rv.Wall(b, (0, 1.2, 0), (-1, 0, 0), (0, 0, 1), S)
+    front.decal(-0.78, 1.7, 0.5, 0.25, LOGO)
+    cab_front = rv.Wall(b, (0, CAB[3] + 0.02, 0), (-1, 0, 0), (0, 0, 1), S)
+    for s in (0.45, 1.1):
+        cab_front.light(s, 2.88, 0.06, LENS, DARK, depth=0.06)
+    b.cylinder(0.07, 0.12, (-0.4, -0.2, 3.01), BEACON, S, segments=12)
+    # Cab: a wiper along the bottom of the front glass, the door handle and a mirror on the left
+    b.rod((-1.0, CAB[3] + 0.005, 1.84), (-0.62, CAB[3] + 0.005, 1.95), 0.008, DARK, S)   # parked low
+    b.box_between((CAB[0] - 0.03, 0.55, 1.95), (CAB[0], 0.7, 1.98), DARK, S)
+    b.rod((CAB[0], 1.1, 2.6), (CAB[0] - 0.25, 1.25, 2.7), 0.015, DARK, S)
+    b.box_between((CAB[0] - 0.3, 1.22, 2.55), (CAB[0] - 0.22, 1.27, 2.8), DARK, S)
+
+    # Counterweight: FAT across the back, hazard stripes at its corners, two lamps on top.
+    # The outline's arc runs from the left corner to the right: left to right seen from behind.
+    arc = counterweight_outline()[:9]
+    b.decal_strip(arc[2:7], 1.38, 1.88, 0.004, LETTERS, S)
+    b.decal_strip(arc[0:3], 1.12, 1.3, 0.004, HAZARD, S, uv=(0, 0, 1, 0.4))
+    b.decal_strip(arc[6:9], 1.12, 1.3, 0.004, HAZARD, S, uv=(0, 0, 1, 0.4))
+    for i in (1, 7):
+        x, y = arc[i]
+        b.cylinder(0.05, 0.05, (x * 0.95, y * 0.95, HOUSE_TOP + 0.025), LENS, S, segments=10)
+
+
+def member_wall(b, a, c, x, frac, groups):
+    """The outward side face of an arm member from (y, z) a to c, at x, centred `frac`
+    of the way along; s runs along the member (towards the tip on the right, away from it
+    on the left, so text reads from outside), t up"""
+    d = (c[0] - a[0], c[1] - a[1])
+    n = math.hypot(*d)
+    along = (0, d[0] / n, d[1] / n)
+    up = (0, -along[2], along[1])
+    if up[2] < 0:
+        up = (0, -up[1], -up[2])
+    right = along if x > 0 else tuple(-v for v in along)
+    mid = (x, a[0] + d[0] * frac, a[1] + d[1] * frac)
+    wall = rv.Wall(b, mid, right, up, groups)
+    if wall.n.x * x < 0:        # facing inwards: turn it round
+        wall = rv.Wall(b, mid, tuple(-v for v in right), up, groups)
+    return wall
+
+
+def arm_livery(b):
+    """FAT stripes down both sides of the boom, the model number on the stick, a work light"""
+    for side in (-1, 1):
+        member_wall(b, BOOM_FOOT, BOOM_KNEE, side * 0.25, 0.5, "boom").decal(0, 0, 2.0, 0.25, STRIPE)
+        member_wall(b, STICK_TOP, BUCKET_PIN, side * 0.19, 0.55, "stick").decal(0, 0, 0.8, 0.2, BADGE)
+    lamp = rv.Wall(b, (0, BOOM_KNEE[0] - 0.3, BOOM_KNEE[1] + 0.36), (-1, 0, 0), (0, 0, 1), "boom")
+    lamp.light(0, 0.0, 0.07, LENS, DARK)
 
 
 def collision_parts(kind):
@@ -208,7 +344,7 @@ def collision_parts(kind):
         beam(b, BOOM_FOOT, BOOM_KNEE, 0.55, 0.7, 0.25, 0, comp("m_boom", "boom", *zone("dmgZone_arm")))
         beam(b, BOOM_KNEE, BOOM_TIP, 0.7, 0.45, 0.25, 0, comp("m_boom", "boom", *zone("dmgZone_arm")))
         beam(b, STICK_TOP, BUCKET_PIN, 0.45, 0.32, 0.19, 0, comp("m_stick", "stick", *zone("dmgZone_arm")))
-        b.prism_x([(5.95, 1.45), (5.88, 0.85), (6.3, 0.22), (6.75, 0.22), (7.25, 0.42)], -0.54, 0.54, 0,
+        b.prism_x(facing_in([(5.95, 1.45), (5.88, 0.85), (6.3, 0.22), (6.75, 0.22), (7.25, 0.42)]), -0.54, 0.54, 0,
                   comp("m_bucket", "bucket", *zone("dmgZone_arm")))
         if kind == "geometry":
             TRACKS.hubs(b, comp)
@@ -230,6 +366,8 @@ def memory_points():
     pts["stick_cyl_axis"] = axis_x(STICK_CYL[0])
     pts["bucket_axis"] = axis_x(BUCKET_PIN)
     pts["bucket_cyl_axis"] = axis_x(BUCKET_CYL[0])
+    for name, (base, mount) in (("boom", BOOM_CYL), ("stick", STICK_CYL), ("bucket", BUCKET_CYL)):
+        pts[name + "_rod_axis"] = [(0, *p) for p in crawler.cylinder_rod_axis(base, mount)]
     # Getting in from the left, beside the track (stand within 1 m of seat_con_1_1)
     pts["pos_driver"] = (-2.1, 0.3, 0.0)
     pts["pos_driver_dir"] = (-1.6, 0.3, 0.0)
@@ -250,16 +388,18 @@ def memory_points():
 
 def report_model_cfg():
     """The numbers model.cfg and config.cpp need, from the constants above"""
-    for name, (lo, hi, speed) in JOINTS.items():
-        print(f"[excavator] {name}: angle0 rad {lo} angle1 rad {hi}, initPhase {-lo / (hi - lo):.4f}, "
+    for name, (a0, a1, speed) in JOINTS.items():
+        print(f"[excavator] {name}: angle0 rad {a0} angle1 rad {a1}, initPhase {-a0 / (a1 - a0):.4f}, "
               f"animPeriod {1 / speed:.1f}")
     for cyl, (pivot, (base, mount), joint) in {
         "boom_cyl": (BOOM_FOOT, BOOM_CYL, "boom"),
         "stick_cyl": (BOOM_TIP, STICK_CYL, "stick"),
         "bucket_cyl": (BUCKET_PIN, BUCKET_CYL, "bucket"),
     }.items():
-        lo, hi, _ = JOINTS[joint]
-        a0, a1 = crawler.cylinder_swing(pivot, base, mount, lo, hi)
+        j0, j1, _ = JOINTS[joint]
+        a0, a1 = crawler.cylinder_swing(pivot, base, mount, j0, j1)
+        e0, e1 = (crawler.cylinder_extension(pivot, base, mount, a) for a in (j0, j1))
+        print(f"[excavator] {cyl.replace('_cyl', '_rod')}: offset0 {e0:.3f} offset1 {e1:.3f}")
         print(f"[excavator] {cyl}: angle0 rad {a0:.2f} angle1 rad {a1:.2f}")
 
 

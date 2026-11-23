@@ -9,7 +9,8 @@ class BM_Bulldozer extends BM_Machine
 	{
 		m_enginePtcPos = "0 1.95 1.0";
 		SetEnginePos("0 1.6 0.8");
-		AddJoint(BLADE, 0.25, 0.25);		// full travel in 4 s
+		array<string> linked = {"bladeCyl", "bladeRod"};	// the lift cylinders' swing and rod slide
+		AddJoint(BLADE, 0.25, 0.25, false, linked);		// full travel in 4 s
 	}
 
 	override string GetRollerType()

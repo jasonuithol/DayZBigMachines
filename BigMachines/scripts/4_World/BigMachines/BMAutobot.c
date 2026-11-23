@@ -81,7 +81,10 @@ class BM_Cmd_State : AB_Command
 		c.R.Str("type", machine.GetType()).Arr("joints", joints);
 		BM_Excavator excavator = BM_Excavator.Cast(machine);
 		if (excavator)
+		{
 			c.R.Num("slew", excavator.GetSlew()).Num("slew_anim", excavator.GetAnimationPhase(BM_Excavator.SLEW_SOURCE));
+			c.R.Vec("tracks", excavator.GetTrackDirection());
+		}
 		c.R.Int("wheels_present", machine.WheelCountPresent()).Num("speed_kmh", machine.GetSpeedometer());
 		int contact = 0;
 		for (int w = 0; w < machine.WheelCount(); w++)

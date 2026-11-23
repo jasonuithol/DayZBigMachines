@@ -185,11 +185,13 @@ class CfgVehicles
 		width = 0.6;
 		tyreType = 0;
 		tyreOffroadResistance = 1.0;
-		tyreRollResistance = 0.03;
-		tyreGrip = 1.0;
+		// next to no grip: the wheels only hold the machine up, TrackDrive (BM_Excavator.c)
+		// moves it along the tracks
+		tyreRollResistance = 0.01;
+		tyreGrip = 0.02;
 		tyreRoughness = 1.0;
-		tyreLongitudinalFriction = 3.0;
-		tyreLateralFriction = 2.2;
+		tyreLongitudinalFriction = 0.05;
+		tyreLateralFriction = 0.05;
 		class DamageSystem
 		{
 			class GlobalHealth
@@ -547,6 +549,8 @@ class CfgVehicles
 				initPhase = 0.25;
 				animPeriod = 4;
 			};
+			class bladeCyl: bladeLift {};	// the lift cylinders and their rods, in step
+			class bladeRod: bladeLift {};	// (BM_Machine.AddJoint)
 		};
 
 		class DamageSystem: DamageSystem
@@ -641,7 +645,7 @@ class CfgVehicles
 				initPhase = 0.5385;
 				animPeriod = 5;
 			};
-			class stick
+			class dipper		// the stick
 			{
 				source = "user";
 				initPhase = 0.5294;
@@ -650,9 +654,17 @@ class CfgVehicles
 			class bucket
 			{
 				source = "user";
-				initPhase = 0.56;
+				initPhase = 0.2692;
 				animPeriod = 4;
 			};
+			// Each joint's cylinder, in step with it (BM_Machine.AddJoint): two model.cfg
+			// animations sharing a source scramble the sources after them
+			class boomCyl: boom {};
+			class boomRod: boom {};
+			class dipperCyl: dipper {};
+			class dipperRod: dipper {};
+			class bucketCyl: bucket {};
+			class bucketRod: bucket {};
 		};
 
 		class DamageSystem: DamageSystem

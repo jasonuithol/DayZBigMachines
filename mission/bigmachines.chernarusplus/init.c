@@ -68,14 +68,17 @@ class CustomMission: MissionServer
 		return machine;
 	}
 
-	override void StartingEquipSetup(PlayerBase player, bool clothesChosen)
+	//! New characters start between the two machines, on the drivers' (left) side, facing them
+	override PlayerBase CreateCharacter(PlayerIdentity identity, vector pos, ParamsReadContext ctx, string characterName)
 	{
-		super.StartingEquipSetup(player, clothesChosen);
-		// beside the bulldozer's left track, where its driver gets in
 		vector side = Vector(Math.Sin((HEADING - 90) * Math.DEG2RAD), 0, Math.Cos((HEADING - 90) * Math.DEG2RAD));
-		vector pos = DOZER_POS + side * 4;
+		pos = (DOZER_POS + EXCAVATOR_POS) * 0.5 + side * 6;
 		pos[1] = GetGame().SurfaceY(pos[0], pos[2]);
-		player.SetPosition(pos);
+		Entity playerEnt = GetGame().CreatePlayer(identity, characterName, pos, 0, "NONE");
+		Class.CastTo(m_player, playerEnt);	// EquipCharacter dresses m_player
+		GetGame().SelectPlayer(identity, m_player);
+		m_player.SetOrientation(Vector(HEADING + 90, 0, 0));
+		return m_player;
 	}
 
 	// --- headless checks (-missiontest) ---
@@ -148,6 +151,7 @@ class CustomMission: MissionServer
 		}
 		CheckMachine(m_Dozer, "-3 1.6 -0.85");
 		CheckMachine(m_Excavator, "-3 2.2 0.3");
+		m_ExcavatorStart = m_Excavator.GetPosition();
 
 		// Bulldozer: raise the blade; its collision must move up
 		m_Before = HitHeight(m_Dozer, "0 0 2.45");
@@ -175,10 +179,32 @@ class CustomMission: MissionServer
 		Check(stoppedAt > 0.3 && stoppedAt < 0.7 && Math.AbsFloat(m_Dozer.GetBladePhase() - stoppedAt) < 0.01, "bulldozer: blade stops where it is (" + stoppedAt + ")");
 
 		// Excavator: raise the boom; the bucket (over the ground 6.6 m ahead) must go up with it
-		m_Before = HitHeight(m_Excavator, "0 0 6.6");
+		m_Before = HitHeight(m_Excavator, "0.3 0 6.4");
 		Print("[BMTest] excavator: bucket top at rest " + m_Before);
 		ExcavatorControl(BM_Control.RAISE, 1);
 		GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).CallLater(TestBoomUp, 2000, false);
+	}
+
+	//! Every joint's animation sources read back its phase. Two model.cfg animations sharing a
+	//! source once made the engine send phases to the wrong sources (the stick key moved the
+	//! boom), which nothing else here noticed.
+	void CheckSources(BM_Machine m)
+	{
+		for (int j = 0; j < m.JointCount(); j++)
+		{
+			float phase = m.GetJointPhase(j);
+			string src = m.GetJointSource(j);
+			bool ok = Math.AbsFloat(m.GetAnimationPhase(src) - phase) < 0.01;
+			string got = "" + m.GetAnimationPhase(src);
+			array<string> linkedSources = m.GetJointLinkedSources(j);
+			for (int k = 0; k < linkedSources.Count(); k++)
+			{
+				string linked = linkedSources[k];
+				ok = ok && Math.AbsFloat(m.GetAnimationPhase(linked) - phase) < 0.01;
+				got += ", " + linked + " " + m.GetAnimationPhase(linked);
+			}
+			Check(ok, m.GetType() + ": " + src + " animations at the joint's phase " + phase + " (" + got + ")");
+		}
 	}
 
 	void ExcavatorControl(int control, int dir)
@@ -208,6 +234,7 @@ class CustomMission: MissionServer
 		return -1;
 	}
 
+	protected vector m_ExcavatorStart;	//!< where the excavator stood when the checks began
 	protected vector m_Ahead;		//!< world point under the boom before slewing
 	protected vector m_TrackRay;	//!< world point in front of the left track, at track height
 	protected vector m_TrackRayEnd;	//!< and one under the machine: the ray between hits the track's front
@@ -218,7 +245,7 @@ class CustomMission: MissionServer
 	{
 		ExcavatorControl(BM_Control.RAISE, 0);
 		int boom = m_Excavator.ControlJoint(BM_Control.RAISE);
-		float top = HitHeight(m_Excavator, "0 0 6.6");
+		float top = HitHeight(m_Excavator, "0.3 0 6.4");
 		Check(m_Excavator.GetJointPhase(boom) > 0.85, "excavator: boom raised (phase " + m_Excavator.GetJointPhase(boom) + ")");
 		Check(top > m_Before + 0.3 || (m_Before > -99 && top == -99), "excavator: bucket collision moved up with the boom (" + m_Before + " -> " + top + ")");
 
@@ -262,7 +289,12 @@ class CustomMission: MissionServer
 		float slew = m_Excavator.GetSlew();
 		Check(slew > 90 && slew < 160, "excavator: slew wrapped past half a turn (" + slew + " deg)");
 		Check(Math.AbsFloat(m_Excavator.GetOrientation()[1]) < 6 && Math.AbsFloat(m_Excavator.GetOrientation()[2]) < 6, "excavator: still upright " + m_Excavator.GetOrientation());
+		// its wheels have next to no grip: with nobody aboard, TrackDrive holds it there
+		float moved = vector.Distance(m_ExcavatorStart, m_Excavator.GetPosition());
+		Check(moved < 0.3, "excavator: parked, it stays put while slewing (moved " + moved + " m)");
 		Check(Math.AbsFloat(m_Dozer.GetOrientation()[1]) < 6 && Math.AbsFloat(m_Dozer.GetOrientation()[2]) < 6, "bulldozer: still upright " + m_Dozer.GetOrientation());
+		CheckSources(m_Dozer);
+		CheckSources(m_Excavator);
 		Print("[BMTest] done");
 		GetGame().RequestExit(0);
 	}

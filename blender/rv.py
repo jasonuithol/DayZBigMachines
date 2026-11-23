@@ -62,13 +62,35 @@ def color_material(name, color, roughness=0.6, metallic=0.0, rvmat=""):
     return mat
 
 
+def texture_material(name, game_path, png_path, rvmat=""):
+    """Material with a real texture: `game_path` (e.g. BigMachines\\data\\x_ca.paa) in game,
+    the source PNG in Blender previews, its alpha cut out"""
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    bsdf = nodes["Principled BSDF"]
+    tex = nodes.new("ShaderNodeTexImage")
+    tex.image = bpy.data.images.load(png_path, check_existing=True)
+    mat.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    mat.node_tree.links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
+    bsdf.inputs["Roughness"].default_value = 0.6
+    mat.blend_method = "CLIP"
+    props = mat.a3ob_properties_material
+    props.texture_type = "CUSTOM"
+    props.color_raw = game_path
+    props.material_path = rvmat
+    return mat
+
+
 class MeshBuilder:
-    """Accumulates parts into one bmesh, tracking material and selections per part."""
+    """Accumulates parts into one bmesh, tracking material and selections per part.
+    Everything but decals has UVs at 0 (flat colour textures)."""
 
     def __init__(self):
         self.bm = bmesh.new()
         self.groups = {}  # selection name -> list of verts
         self.components = 0
+        self.face_uvs = []  # (face, [(u, v) per corner]) for decals
 
     def _tag(self, verts, mat_index, groups):
         for f in {f for v in verts for f in v.link_faces}:
@@ -193,9 +215,52 @@ class MeshBuilder:
         self._tag(verts, mat_index, groups)
         return verts
 
+    def decal(self, center, right, up, width, height, mat_index, groups=(), uv=(0, 0, 1, 1)):
+        """A flat quad showing a texture: centred on `center`, `right` and `up` unit vectors
+        as seen from the side it faces (its normal is right x up). Put it a few mm off the
+        surface it sits on. uv = (u0, v0, u1, v1), v up."""
+        c, r, u = Vector(center), Vector(right) * (width / 2), Vector(up) * (height / 2)
+        corners = [c - r - u, c + r - u, c + r + u, c - r + u]
+        u0, v0, u1, v1 = uv
+        return self._uv_quad(corners, [(u0, v0), (u1, v0), (u1, v1), (u0, v1)], mat_index, groups)
+
+    def decal_strip(self, path, bottom, top, offset, mat_index, groups=(), uv=(0, 0, 1, 1)):
+        """A decal following a wall seen from above: `path` is (x, y) points along the wall,
+        left to right as seen from outside, from height `bottom` to `top`, standing `offset`
+        out from it (to the viewer's side). The texture stretches along the path by length."""
+        pts = [Vector((x, y, 0)) for x, y in path]
+        outs = []
+        for i, p in enumerate(pts):
+            d = (pts[min(i + 1, len(pts) - 1)] - pts[max(i - 1, 0)]).normalized()
+            outs.append(p + Vector((d.y, -d.x, 0)) * offset)  # right of the direction of travel
+        lengths = [0.0]
+        for i in range(1, len(pts)):
+            lengths.append(lengths[-1] + (pts[i] - pts[i - 1]).length)
+        u0, v0, u1, v1 = uv
+        verts = []
+        for i in range(len(pts) - 1):
+            ua = u0 + (u1 - u0) * lengths[i] / lengths[-1]
+            ub = u0 + (u1 - u0) * lengths[i + 1] / lengths[-1]
+            a, b = outs[i], outs[i + 1]
+            corners = [Vector((a.x, a.y, bottom)), Vector((b.x, b.y, bottom)), Vector((b.x, b.y, top)),
+                       Vector((a.x, a.y, top))]
+            verts += self._uv_quad(corners, [(ua, v0), (ub, v0), (ub, v1), (ua, v1)], mat_index, groups)
+        return verts
+
+    def _uv_quad(self, corners, uvs, mat_index, groups):
+        verts = [self.bm.verts.new(c) for c in corners]
+        face = self.bm.faces.new(verts)
+        self.face_uvs.append((face, uvs))
+        self._tag(verts, mat_index, groups)
+        return verts
+
     def to_object(self, name, materials, triangulate_all=False):
         # P3D faces must be tris or quads; collision LODs are fully triangulated so
         # convexity is unambiguous.
+        uv_layer = self.bm.loops.layers.uv.verify()
+        for face, uvs in self.face_uvs:
+            for loop, uv in zip(face.loops, uvs):
+                loop[uv_layer].uv = uv
         faces = [f for f in self.bm.faces if triangulate_all or len(f.verts) > 4]
         bmesh.ops.triangulate(self.bm, faces=faces, quad_method="BEAUTY", ngon_method="BEAUTY")
         if not triangulate_all:
@@ -365,3 +430,95 @@ def render_preview(path, target, cam_loc, lens=35, size=(1400, 1000), visual_col
 
     scene.render.filepath = path
     bpy.ops.render.render(write_still=True)
+
+
+class Wall:
+    """A flat face of a machine to put details on, in its own coordinates: s along `right`,
+    t along `up` (as seen from outside), n out of the face (normal = right x up). `center`
+    is a point on the face; `groups`: the selections (bone) the details belong to."""
+
+    SEAM = 0.012        # width of a panel seam
+    SEAM_DEPTH = 0.005
+
+    def __init__(self, b, center, right, up, groups=()):
+        self.b = b
+        self.c = Vector(center)
+        self.r = Vector(right).normalized()
+        self.u = Vector(up).normalized()
+        self.n = self.r.cross(self.u)
+        self.groups = groups
+        self.rot = Matrix((self.r, self.u, self.n)).transposed().to_4x4()
+
+    def point(self, s, t, n=0.0):
+        return self.c + self.r * s + self.u * t + self.n * n
+
+    def plate(self, s0, t0, s1, t1, depth, mat, n0=0.0, tilt=0.0):
+        """A box over s0..s1, t0..t1 standing n0..n0+depth off the face; `tilt` (degrees)
+        turns it about its own s axis (a louvre)"""
+        rot = self.rot @ Matrix.Rotation(math.radians(tilt), 4, "X")
+        loc = self.point((s0 + s1) / 2, (t0 + t1) / 2, n0 + depth / 2)
+        return self.b.box((abs(s1 - s0), abs(t1 - t0), depth), loc, mat, self.groups, rot=rot)
+
+    def seams(self, s0, t0, s1, t1, mat):
+        """The outline of a panel: four thin strips"""
+        w, d = self.SEAM, self.SEAM_DEPTH
+        self.plate(s0, t0, s1, t0 + w, d, mat)
+        self.plate(s0, t1 - w, s1, t1, d, mat)
+        self.plate(s0, t0, s0 + w, t1, d, mat)
+        self.plate(s1 - w, t0, s1, t1, d, mat)
+
+    def door(self, s0, t0, s1, t1, mat, hinge="left", handle=True):
+        """An access door: seams, two hinges on the `hinge` edge (left/right/top), a handle
+        by the opposite edge"""
+        self.seams(s0, t0, s1, t1, mat)
+        h = 0.07
+        if hinge in ("left", "right"):
+            s = s0 + 0.03 if hinge == "left" else s1 - 0.03
+            for t in (t0 + 0.12, t1 - 0.12 - h):
+                self.plate(s - 0.02, t, s + 0.02, t + h, 0.02, mat)
+            if handle:
+                s = s1 - 0.09 if hinge == "left" else s0 + 0.09
+                tm = (t0 + t1) / 2
+                self.plate(s - 0.015, tm - 0.06, s + 0.015, tm + 0.06, 0.03, mat)
+        else:
+            for s in (s0 + 0.12, s1 - 0.12 - h):
+                self.plate(s, t1 - 0.05, s + h, t1 - 0.01, 0.02, mat)
+            if handle:
+                sm = (s0 + s1) / 2
+                self.plate(sm - 0.06, t0 + 0.05, sm + 0.06, t0 + 0.08, 0.03, mat)
+
+    def grille(self, s0, t0, s1, t1, back_mat, slat_mat, pitch=0.045, frame=0.03, tilt=35.0):
+        """Louvred grille: a dark backing, a frame, and slats running along s, tilted down"""
+        self.plate(s0, t0, s1, t1, 0.006, back_mat)
+        f = frame
+        self.plate(s0, t0, s1, t0 + f, 0.035, slat_mat)
+        self.plate(s0, t1 - f, s1, t1, 0.035, slat_mat)
+        self.plate(s0, t0, s0 + f, t1, 0.035, slat_mat)
+        self.plate(s1 - f, t0, s1, t1, 0.035, slat_mat)
+        t = t0 + f + pitch / 2
+        while t < t1 - f - pitch / 3:
+            self.plate(s0 + f, t - 0.008, s1 - f, t + 0.008, 0.04, slat_mat, n0=0.004, tilt=tilt)
+            t += pitch
+
+    def mesh(self, s0, t0, s1, t1, back_mat, bar_mat, pitch=0.05):
+        """A guard of crossed bars (radiator mesh) over a dark backing"""
+        self.plate(s0, t0, s1, t1, 0.006, back_mat)
+        s = s0
+        while s <= s1 + 1e-6:
+            self.plate(s - 0.006, t0, s + 0.006, t1, 0.02, bar_mat)
+            s += pitch
+        t = t0
+        while t <= t1 + 1e-6:
+            self.plate(s0, t - 0.006, s1, t + 0.006, 0.026, bar_mat)
+            t += pitch
+
+    def decal(self, s, t, width, height, mat, uv=(0, 0, 1, 1), n=0.004):
+        """A texture centred at (s, t), `n` off the face"""
+        return self.b.decal(self.point(s, t, n), self.r, self.u, width, height, mat, self.groups, uv)
+
+    def light(self, s, t, radius, lens_mat, body_mat, depth=0.08):
+        """A round work light facing out of the face"""
+        rot = self.rot
+        self.b.cylinder(radius, depth, self.point(s, t, depth / 2), body_mat, self.groups, segments=12, rot=rot)
+        self.b.cylinder(radius * 0.8, 0.01, self.point(s, t, depth + 0.004), lens_mat, self.groups, segments=12,
+                        rot=rot)

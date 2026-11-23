@@ -11,6 +11,7 @@ class BM_Machine extends CarScript
 	static const int STORE_VERSION = 1;
 
 	protected ref array<string> m_JointSources = new array<string>();
+	protected ref array<ref array<string>> m_JointLinked = new array<ref array<string>>();	//!< its cylinders' sources
 	protected ref array<float> m_JointSpeeds = new array<float>();		//!< phase per second
 	protected ref array<bool> m_JointWraps = new array<bool>();			//!< turns all the way round (slew)
 	protected ref array<float> m_JointShown = new array<float>();		//!< client: last phase applied
@@ -43,11 +44,17 @@ class BM_Machine extends CarScript
 	}
 
 	//! Subclass constructors: declare joints in order (0, 1, ...). initPhase must match the
-	//! source's initPhase in config.cpp.
-	protected void AddJoint(string source, float speed, float initPhase, bool wraps = false)
+	//! source's initPhase in config.cpp. linked: sources set in step with it (its hydraulic
+	//! cylinder's swing and rod slide). Two model.cfg animations must never share a source:
+	//! the engine then mixes up which phase goes to which source for every source after them.
+	protected void AddJoint(string source, float speed, float initPhase, bool wraps = false, array<string> linked = null)
 	{
 		int j = m_JointSources.Count();
 		m_JointSources.Insert(source);
+		ref array<string> sources = new array<string>();
+		if (linked)
+			sources.Copy(linked);
+		m_JointLinked.Insert(sources);
 		m_JointSpeeds.Insert(speed);
 		m_JointWraps.Insert(wraps);
 		m_JointShown.Insert(initPhase);
@@ -154,6 +161,11 @@ class BM_Machine extends CarScript
 		return m_JointSources[j];
 	}
 
+	array<string> GetJointLinkedSources(int j)
+	{
+		return m_JointLinked[j];
+	}
+
 	//! Server: start joint j moving (1 / -1) or stop it where it is (0)
 	void JointCommand(int j, int dir)
 	{
@@ -194,21 +206,38 @@ class BM_Machine extends CarScript
 			{
 				phase = Math.Clamp(phase, 0, 1);
 				SetJointPhase(j, phase);
-				SetAnimationPhaseNow(m_JointSources[j], phase);
+				ShowJoint(j, phase, true);
 				JointCommand(j, 0);		// at the end stop
 				continue;
 			}
 			SetJointPhase(j, phase);
-			SetAnimationPhaseNow(m_JointSources[j], phase);
+			ShowJoint(j, phase, true);
 		}
 		SetSynchDirty();
+	}
+
+	//! Animate joint j (and its cylinder) to `phase`: at once, or over the source's animPeriod
+	protected void ShowJoint(int j, float phase, bool now)
+	{
+		if (now)
+		{
+			SetAnimationPhaseNow(m_JointSources[j], phase);
+			foreach (string linked : m_JointLinked[j])
+				SetAnimationPhaseNow(linked, phase);
+		}
+		else
+		{
+			SetAnimationPhase(m_JointSources[j], phase);
+			foreach (string linkedSource : m_JointLinked[j])
+				SetAnimationPhase(linkedSource, phase);
+		}
 	}
 
 	//! Server: put every joint where its phase says, at once (after spawning or loading)
 	protected void ApplyJoints()
 	{
 		for (int j = 0; j < JointCount(); j++)
-			SetAnimationPhaseNow(m_JointSources[j], GetJointPhase(j));
+			ShowJoint(j, GetJointPhase(j), true);
 	}
 
 	override void OnVariablesSynchronized()
@@ -220,10 +249,7 @@ class BM_Machine extends CarScript
 		{
 			float phase = GetJointPhase(j);
 			// across the slew's wrap point, 1 and 0 look the same: jump rather than swing round
-			if (m_JointWraps[j] && Math.AbsFloat(phase - m_JointShown[j]) > 0.5)
-				SetAnimationPhaseNow(m_JointSources[j], phase);
-			else
-				SetAnimationPhase(m_JointSources[j], phase);
+			ShowJoint(j, phase, m_JointWraps[j] && Math.AbsFloat(phase - m_JointShown[j]) > 0.5);
 			m_JointShown[j] = phase;
 		}
 	}

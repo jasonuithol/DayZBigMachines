@@ -31,11 +31,39 @@ CREW_PROXY = "dz\\vehicles\\wheeled\\proxies\\crew_driver.p3d"
 CREW_ROT = (0, 0, 180)     # the proxy faces its -Y: without this the driver sits facing backwards
 BATTERY_PROXY = "dz\\vehicles\\parts\\battery_truck.p3d"
 
+# The game moves the wheel bones (wheel_<side>_<axle>) with the suspension itself, whatever
+# model.cfg says: wheel items were drawn 15-28 cm above their hubs and anything in those bones
+# jumps about, even parked with the engine off. So the rollers' own model is invisible and the
+# sprockets and idlers are fixed parts of the track frame (they don't turn; nor does the belt).
+# Their teeth stop this far inside the belt. (Bones of their own, gear_<side>_<axle>, silently
+# stopped every animation in the model.)
+GEAR_CLEARANCE = 0.02
+
+# Livery decals (tools/make_textures.py draws them; tools/img2paa.sh makes the .paa)
+DECALS = ("bm_fat_logo_ca", "bm_fat_stripe_ca", "bm_fat_letters_ca", "bm_hazard_ca")
+
+
+def decal_materials(badge):
+    """Texture materials for the livery, in DECALS order, then `badge` (a model number)"""
+    mats = []
+    for name in (*DECALS, badge):
+        mats.append(rv.texture_material(name, f"BigMachines\\data\\{name}.paa",
+                                        os.path.join(ROOT, "textures", name + ".png")))
+    return mats
+
+
+def detail_materials():
+    """Light lenses and a beacon"""
+    return [
+        rv.color_material("lens", (0.95, 0.92, 0.78), 0.1, 0.0),
+        rv.color_material("beacon", (0.95, 0.45, 0.03), 0.2, 0.0),
+    ]
+
 
 class Tracks:
     """A crawler undercarriage: two tracks round an idler and a sprocket."""
 
-    def __init__(self, x, width, wheelbase, radius, thickness, roller_path, roller_vis_r):
+    def __init__(self, x, width, wheelbase, radius, thickness, roller_path):
         self.x = x                      # track centre line, either side
         self.width = width              # track shoe width
         self.wheelbase = wheelbase      # idler centre to sprocket centre
@@ -44,7 +72,7 @@ class Tracks:
         self.wheel_z = radius + thickness   # hub height: the track's bottom is on the ground
         self.wheel_r = self.wheel_z         # physics wheel radius (the roller item's config radius)
         self.roller_path = roller_path      # in-game path of the roller (wheel item) model
-        self.roller_vis_r = roller_vis_r    # drawn sprocket/idler radius, inside the track
+        self.tooth_r = radius - GEAR_CLEARANCE      # sprocket tooth tips, inside the belt
 
     def wheels(self):
         """(slot selection, x, y) of the four physics wheels"""
@@ -68,6 +96,21 @@ class Tracks:
                            rot=X_AXIS_ROT)
             b.cylinder(0.09, self.width * 0.55, (cx, 0, 2 * self.wheel_z - self.thickness - 0.09), frame_mat,
                        groups, segments=10, rot=X_AXIS_ROT)
+        for sel, x, y in self.wheels():
+            # fixed to the track frame, like the belt (see GEAR_CLEARANCE)
+            self.gear(b, x, y, frame_mat, groups)
+
+    def gear(self, b, x, y, mat, groups, width=0.30):
+        """An idler/sprocket at a track end: disc, hub and teeth, turning about its axle"""
+        r = self.tooth_r - 0.09                 # disc; the teeth stand 9 cm proud of it
+        c = (x, y, self.wheel_z)
+        b.lathe_x([(-width / 2, 0.10), (-width / 2, r), (width / 2, r), (width / 2, 0.10)], c, mat, groups,
+                  segments=16)
+        b.cylinder(0.12, width + 0.1, c, mat, groups, segments=12, rot=X_AXIS_ROT)
+        for k in range(8):
+            a = 2 * math.pi * k / 8
+            b.box((width * 0.8, 0.12, 0.08), (x, y + (r + 0.03) * math.cos(a), self.wheel_z + (r + 0.03) * math.sin(a)),
+                  mat, groups, rot=Matrix.Rotation(a, 4, "X"))
 
     def collision(self, b, comp, names=("m_track_l", "m_track_r"), extra=()):
         """A box per track, clear of the ground: the wheels carry the machine"""
@@ -94,18 +137,14 @@ class Tracks:
         rv.add_proxy(lod_obj, coll, BATTERY_PROXY, battery_pos, groups=("battery", *battery_groups))
 
     def build_roller(self, out_path, width=0.30):
-        """The sprocket/idler model drawn at each physics wheel (the wheel item's model).
+        """The wheel item's model: invisible (a 5 mm triangle at the axle; the machine draws
+        its own sprockets, see GEAR_CLEARANCE) but with a geometry LOD for the item.
         Resets the scene: call before building the machine."""
         rv.reset_scene()
         dark = rv.color_material("steel_dark", (0.16, 0.16, 0.16), 0.5, 0.7)
         b = MeshBuilder()
-        r = self.roller_vis_r
-        b.lathe_x([(-width / 2, 0.10), (-width / 2, r), (width / 2, r), (width / 2, 0.10)], (0, 0, 0), 0, segments=16)
-        b.cylinder(0.12, width + 0.1, (0, 0, 0), 0, segments=12, rot=X_AXIS_ROT)
-        for k in range(8):   # sprocket teeth
-            a = 2 * math.pi * k / 8
-            b.box((width * 0.8, 0.12, 0.08), (0, (r + 0.03) * math.cos(a), (r + 0.03) * math.sin(a)), 0,
-                  rot=Matrix.Rotation(a, 4, "X"))
+        tri = [b.bm.verts.new(p) for p in ((0, 0, 0), (0, 0.005, 0), (0, 0, 0.005))]
+        b.bm.faces.new(tri)
         vis = b.to_object("Roller_LOD1", [dark])
         rv.set_lod(vis, rv.LOD_VISUAL, resolution=1)
         rv.new_collection("Roller_Visual").objects.link(vis)
@@ -138,9 +177,29 @@ def cylinder_swing(pivot, base, mount, deg_min, deg_max):
     return direction(deg_min) - rest, direction(deg_max) - rest
 
 
+def cylinder_extension(pivot, base, mount, deg):
+    """How much longer (m) the cylinder is than modelled when the child part is turned `deg`"""
+    py, pz = pivot
+    my, mz = mount[0] - py, mount[1] - pz
+    a = math.radians(deg)
+    y = py + my * math.cos(a) - mz * math.sin(a)
+    z = pz + my * math.sin(a) + mz * math.cos(a)
+    return math.hypot(y - base[0], z - base[1]) - math.hypot(mount[0] - base[0], mount[1] - base[1])
+
+
+def cylinder_rod_axis(base, mount):
+    """Memory points for the rod's slide: from `base`, 1 m along the cylinder (model.cfg's
+    translation offsets are in lengths of the axis)"""
+    d = (mount[0] - base[0], mount[1] - base[1])
+    n = math.hypot(*d)
+    return base, (base[0] + d[0] / n, base[1] + d[1] / n)
+
+
 def cylinder(b, x, base, mount, barrel_len, rod_len, barrel_mat, rod_mat, barrel_bone, rod_bone,
              barrel_r=0.075, rod_r=0.04):
-    """Barrel from `base` towards `mount` (in barrel_bone), rod back from `mount` (in rod_bone)"""
+    """Barrel from `base` towards `mount` (in barrel_bone, which swings about the base), rod
+    back from `mount` (in rod_bone: a child of the barrel's bone that slides along it, so the
+    rod stays in line with the barrel; see cylinder_extension)"""
     d = (mount[0] - base[0], mount[1] - base[1])
     length = math.hypot(*d)
     u = (d[0] / length, d[1] / length)
