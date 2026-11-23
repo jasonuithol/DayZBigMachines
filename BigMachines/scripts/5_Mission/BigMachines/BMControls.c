@@ -1,9 +1,9 @@
-//! Client: the driver's machine controls. While PageUp / PageDown (UABMBladeUp / Down) is
-//! held, the server moves the blade; on release it stops where it is.
+//! Client: the driver's machine controls. While a control's key is held (BM_Control: e.g.
+//! PageUp / PageDown), the server moves the joint it works; on release it stops where it is.
 modded class MissionGameplay
 {
-	protected int m_BMBladeDir;
-	protected BM_Bulldozer m_BMDozer;	//!< the machine the last command went to
+	protected ref array<int> m_BMDirs = {0, 0, 0, 0};
+	protected BM_Machine m_BMMachine;	//!< the machine the last commands went to
 
 	override void OnUpdate(float timeslice)
 	{
@@ -14,28 +14,50 @@ modded class MissionGameplay
 	protected void BMUpdateControls()
 	{
 		PlayerBase player = PlayerBase.Cast(GetGame().GetPlayer());
-		BM_Bulldozer dozer;
-		int dir = 0;
+		BM_Machine machine;
 		if (player && player.GetCommand_Vehicle())
 		{
-			dozer = BM_Bulldozer.Cast(player.GetCommand_Vehicle().GetTransport());
-			if (dozer && dozer.CrewMember(0) == player && !GetUIManager().GetMenu())
-			{
-				if (GetUApi().GetInputByName("UABMBladeUp").LocalHold())
-					dir = 1;
-				else if (GetUApi().GetInputByName("UABMBladeDown").LocalHold())
-					dir = -1;
-			}
+			machine = BM_Machine.Cast(player.GetCommand_Vehicle().GetTransport());
+			if (machine && machine.CrewMember(0) != player)
+				machine = null;
 		}
 
-		if (dir == m_BMBladeDir && dozer == m_BMDozer)
+		// Left the machine (or another one) mid-move: stop what was moving
+		if (m_BMMachine && m_BMMachine != machine)
+		{
+			for (int k = 0; k < BM_Control.COUNT; k++)
+			{
+				if (m_BMDirs[k] != 0)
+				{
+					GetGame().RPCSingleParam(m_BMMachine, BM_RPC.CONTROL, new Param2<int, int>(k, 0), true);
+					m_BMMachine.OnControlLocal(k, 0);
+				}
+				m_BMDirs[k] = 0;
+			}
+		}
+		m_BMMachine = machine;
+		if (!machine)
 			return;
-		// Stop the old machine if we left it mid-move, then command the current one
-		if (m_BMDozer && m_BMDozer != dozer && m_BMBladeDir != 0)
-			GetGame().RPCSingleParam(m_BMDozer, BM_RPC.BLADE, new Param1<int>(0), true);
-		if (dozer && (dir != m_BMBladeDir || dozer != m_BMDozer))
-			GetGame().RPCSingleParam(dozer, BM_RPC.BLADE, new Param1<int>(dir), true);
-		m_BMBladeDir = dir;
-		m_BMDozer = dozer;
+
+		bool menu = GetUIManager().GetMenu() != null;
+		for (int c = 0; c < BM_Control.COUNT; c++)
+		{
+			if (!machine.HasControl(c))
+				continue;
+			int dir = 0;
+			if (!menu)
+			{
+				if (GetUApi().GetInputByName(BM_Control.KeyUp(c)).LocalHold())
+					dir = 1;
+				else if (GetUApi().GetInputByName(BM_Control.KeyDown(c)).LocalHold())
+					dir = -1;
+			}
+			if (dir != m_BMDirs[c])
+			{
+				GetGame().RPCSingleParam(machine, BM_RPC.CONTROL, new Param2<int, int>(c, dir), true);
+				machine.OnControlLocal(c, dir);
+				m_BMDirs[c] = dir;
+			}
+		}
 	}
 }

@@ -4,10 +4,22 @@
 		<actions>
 			<input name="UABMBladeUp" loc="Big machines: raise blade / boom" />
 			<input name="UABMBladeDown" loc="Big machines: lower blade / boom" />
+			<input name="UABMSlewLeft" loc="Big machines: turn upper house left" />
+			<input name="UABMSlewRight" loc="Big machines: turn upper house right" />
+			<input name="UABMStickOut" loc="Big machines: stick out" />
+			<input name="UABMStickIn" loc="Big machines: stick in" />
+			<input name="UABMBucketCurl" loc="Big machines: curl bucket" />
+			<input name="UABMBucketDump" loc="Big machines: dump bucket" />
 		</actions>
 		<sorting name="bigmachines" loc="Big Machines">
 			<input name="UABMBladeUp" />
 			<input name="UABMBladeDown" />
+			<input name="UABMSlewLeft" />
+			<input name="UABMSlewRight" />
+			<input name="UABMStickOut" />
+			<input name="UABMStickIn" />
+			<input name="UABMBucketCurl" />
+			<input name="UABMBucketDump" />
 		</sorting>
 	</inputs>
 	<preset>
@@ -16,6 +28,24 @@
 		</input>
 		<input name="UABMBladeDown">
 			<btn name="kNext" />
+		</input>
+		<input name="UABMSlewLeft">
+			<btn name="kLeft" />
+		</input>
+		<input name="UABMSlewRight">
+			<btn name="kRight" />
+		</input>
+		<input name="UABMStickOut">
+			<btn name="kHome" />
+		</input>
+		<input name="UABMStickIn">
+			<btn name="kEnd" />
+		</input>
+		<input name="UABMBucketCurl">
+			<btn name="kInsert" />
+		</input>
+		<input name="UABMBucketDump">
+			<btn name="kDelete" />
 		</input>
 	</preset>
 </modded_inputs>

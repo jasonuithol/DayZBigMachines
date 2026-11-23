@@ -198,7 +198,9 @@ class MeshBuilder:
         # convexity is unambiguous.
         faces = [f for f in self.bm.faces if triangulate_all or len(f.verts) > 4]
         bmesh.ops.triangulate(self.bm, faces=faces, quad_method="BEAUTY", ngon_method="BEAUTY")
-        bmesh.ops.remove_doubles(self.bm, verts=self.bm.verts, dist=0.0001)
+        if not triangulate_all:
+            # Not in collision LODs: parts that touch would be welded into one non-convex component
+            bmesh.ops.remove_doubles(self.bm, verts=self.bm.verts, dist=0.0001)
         self.bm.verts.index_update()
         group_indices = {g: sorted({v.index for v in vs if v.is_valid}) for g, vs in self.groups.items()}
         self.bm.normal_update()

@@ -40,7 +40,7 @@ Steps for each machine:
 | Machine | Model | Moving parts | Vehicle class | Controls | Sounds | On the map | Tested |
 |---|---|---|---|---|---|---|---|
 | 1 Bulldozer | [x] v0.1, flat colours | [x] blade | [x] | [x] blade keys | [~] MS3 truck sounds | [ ] | [~] see below |
-| 2 Excavator | [ ] | [ ] slew, boom, stick, bucket | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 2 Excavator | [x] v0.1, flat colours | [x] slew, boom, stick, bucket | [x] | [x] | [~] MS3 truck sounds | [ ] | [~] see below |
 | 3 Mining excavator | [ ] | [ ] slew, boom, bucket | [ ] | [ ] | [ ] | [ ] | [ ] |
 | 4 Mining haul truck | [ ] | [ ] tipper | [ ] | [ ] | [ ] | [ ] | [ ] |
 | 5 Crawler crane | [ ] | [ ] slew, boom, hook | [ ] | [ ] | [ ] | [ ] | [ ] |
@@ -64,9 +64,35 @@ To do for the bulldozer:
 - [ ] Textures (weathered paint, track links) instead of flat colours; a View Pilot LOD for the cab
 - [ ] Track animation (texture scroll or moving links) and sprocket/idler spin check
 - [ ] Turn on the spot (skid steer) instead of car-style steering
-- [ ] Keep the blade position across restarts
+- [x] Keep the blade position across restarts (every joint is saved; checked on the excavator)
 - [ ] Replace the map's static Wreck_Bulldozer objects with working machines (all 4 maps)
 - [ ] Silence the engine warning "Second driver found when parsing class Crew::Crew" (harmless)
+
+### Excavator status (2026-11-24)
+
+Crawler excavator, 18.5 t: glazed cab front left, boom/stick/bucket with three hydraulic
+cylinders, counterweight. Controls: PageUp/PageDown boom, Left/Right arrows slew, Home/End
+stick, Insert/Delete bucket (rebindable, "Big Machines" in the key settings).
+
+Slewing is faked: DayZ fixes a seated player where the seat is in the modelled pose, so the
+cab can't turn on the model. The whole machine turns (the server spins it, the driver's client
+predicts) and the undercarriage turns back so the tracks stay put. After a slew it drives the
+way the cab faces, not the tracks (agreed trade-off).
+
+Verified in game with DayZAutobot: gets in by aiming at the cab; engine; drives 5.5 km/h flat
+out at 2300 rpm; slewing turns the driver with the cab (heading and counted slew agree to
+0.02 deg) and the tracks stay pointing where they were; boom, stick and bucket move and stop at
+their ends, cylinders follow; joint positions and slew survive a server restart. Headless
+(`tools/test.sh bigmachines`): wheels, rollers, battery, get-in target, every joint, the arm's
+collision following boom and slew, the tracks' collision staying put through a slew.
+
+Not yet checked by a person: how slewing and digging feel, the keys themselves, sounds.
+
+To do for the excavator:
+- [ ] Textures; a View Pilot LOD for the cab
+- [ ] Digging: something for the bucket to pick up or move (dirt piles, loose items)
+- [ ] Optionally: drive along the tracks rather than the cab after a slew
+- [ ] Replace the map's static Wreck_Digger objects with working machines (all 4 maps)
 
 ## Main sites
 
