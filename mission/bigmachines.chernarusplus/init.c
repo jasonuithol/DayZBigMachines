@@ -1,11 +1,26 @@
 // Big Machines test mission (Chernarus). A bulldozer and an excavator, fuelled and with
-// batteries, stand on open ground beside the Balota airfield; players spawn next to them.
+// batteries, stand on open ground beside the Balota airfield, and a tower crane with a wooden
+// crate to lift; players spawn next to them.
 // -missiontest: checks the machines headless, logs [BMTest] lines, then quits. Driving isn't
 // checked here: car physics run on the driver's client, and without one the engine won't
 // start. DayZAutobot drives them with a real client.
 
+const vector BM_CRANE_POS = "5075 0 2420";
+const float BM_CRANE_HEADING = 237;		//!< the jib towards the player spawn
+const float BM_MAST_HEIGHT = 30.0;		//!< walkway above the mast's origin (build_tower_crane.py DECK_Z)
+
+//! The tower crane's mast: a building, so it isn't saved and is put back at every start. Before
+//! the stored world loads, so a saved crane top has its mast to stand on.
+BM_TowerCraneMast BM_SpawnCraneMast()
+{
+	vector pos = BM_CRANE_POS;
+	pos[1] = GetGame().SurfaceY(pos[0], pos[2]);
+	return BM_TowerCraneMast.Cast(GetGame().CreateObjectEx("BM_TowerCraneMast", pos, ECE_CREATEPHYSICS));
+}
+
 void main()
 {
+	BM_SpawnCraneMast();
 	Hive ce = CreateHive();
 	if (ce)
 		ce.InitOffline();
@@ -21,6 +36,10 @@ class CustomMission: MissionServer
 
 	protected BM_Bulldozer m_Dozer;
 	protected BM_Excavator m_Excavator;
+	protected BM_TowerCrane m_Crane;
+	protected BM_TowerCraneMast m_Mast;
+	protected ItemBase m_Crate;
+	protected int m_ChainsRunning;		//!< test chains still going: the last one to finish exits
 	protected float m_Before;
 
 	override void OnInit()
@@ -37,6 +56,58 @@ class CustomMission: MissionServer
 	{
 		m_Dozer = BM_Bulldozer.Cast(SpawnMachine("BM_Bulldozer", DOZER_POS));
 		m_Excavator = BM_Excavator.Cast(SpawnMachine("BM_Excavator", EXCAVATOR_POS));
+		SpawnCrane();
+	}
+
+	//! The crane's top on its mast (the saved one if there is one), and a crate to lift
+	void SpawnCrane()
+	{
+		array<Object> nearby = new array<Object>();
+		GetGame().GetObjectsAtPosition(BM_CRANE_POS, 40, nearby, null);
+		foreach (Object o : nearby)
+		{
+			if (!m_Mast)
+				m_Mast = BM_TowerCraneMast.Cast(o);
+			if (!m_Crane)
+				m_Crane = BM_TowerCrane.Cast(o);
+		}
+		if (!m_Mast)
+		{
+			Print("[BMTest] FAIL no crane mast");
+			return;
+		}
+		if (m_Crane)
+		{
+			Print("[BMTest] using the saved BM_TowerCrane at " + m_Crane.GetPosition());
+		}
+		else
+		{
+			vector pos = m_Mast.GetPosition() + Vector(0, BM_MAST_HEIGHT + 0.1, 0);
+			m_Crane = BM_TowerCrane.Cast(GetGame().CreateObjectEx("BM_TowerCrane", pos, ECE_CREATEPHYSICS));
+			if (!m_Crane)
+			{
+				Print("[BMTest] FAIL could not create BM_TowerCrane");
+				return;
+			}
+			m_Crane.SetOrientation(Vector(BM_CRANE_HEADING, 0, 0));
+			m_Crane.SetPosition(pos);	// created with its centre of mass there, not its origin
+			m_Crane.OnDebugSpawn();
+			m_Crane.SetLifetimeMax(3888000);
+			m_Crane.SetLifetime(3888000);
+			Print("[BMTest] spawned BM_TowerCrane at " + m_Crane.GetPosition());
+		}
+		// a crate on the ground under the hook (trolley where it starts)
+		vector tip = m_Crane.GetHookTip();
+		tip[1] = GetGame().SurfaceY(tip[0], tip[2]);
+		array<Object> here = new array<Object>();
+		GetGame().GetObjectsAtPosition(tip, 3, here, null);
+		foreach (Object h : here)
+		{
+			if (h.GetType() == "WoodenCrate")
+				m_Crate = ItemBase.Cast(h);
+		}
+		if (!m_Crate)
+			m_Crate = ItemBase.Cast(GetGame().CreateObjectEx("WoodenCrate", tip, ECE_PLACE_ON_SURFACE));
 	}
 
 	//! The saved one of this type near `pos`, else a new one (two in one spot throw each other about)
@@ -151,6 +222,8 @@ class CustomMission: MissionServer
 		}
 		CheckMachine(m_Dozer, "-3 1.6 -0.85");
 		CheckMachine(m_Excavator, "-3 2.2 0.3");
+		m_ChainsRunning = 2;
+		TestCraneStart();
 		m_ExcavatorStart = m_Excavator.GetPosition();
 
 		// Bulldozer: raise the blade; its collision must move up
@@ -264,7 +337,7 @@ class CustomMission: MissionServer
 	{
 		ExcavatorControl(BM_Control.SLEW, 0);
 		float slew = m_Excavator.GetSlew();
-		float turned = BM_Excavator.WrapDegrees(m_Excavator.GetOrientation()[0] - m_HeadingBefore);
+		float turned = BM_SlewingMachine.WrapDegrees(m_Excavator.GetOrientation()[0] - m_HeadingBefore);
 		Check(Math.AbsFloat(slew + 90) < 8, "excavator: slewed a quarter turn left (" + slew + " deg)");
 		Check(Math.AbsFloat(turned - slew) < 3, "excavator: the machine turned with the slew (" + turned + " deg)");
 		float ahead = WorldHit(m_Ahead);
@@ -295,8 +368,85 @@ class CustomMission: MissionServer
 		Check(Math.AbsFloat(m_Dozer.GetOrientation()[1]) < 6 && Math.AbsFloat(m_Dozer.GetOrientation()[2]) < 6, "bulldozer: still upright " + m_Dozer.GetOrientation());
 		CheckSources(m_Dozer);
 		CheckSources(m_Excavator);
+		ChainDone();
+	}
+
+	void ChainDone()
+	{
+		m_ChainsRunning--;
+		if (m_ChainsRunning > 0)
+			return;
 		Print("[BMTest] done");
 		GetGame().RequestExit(0);
+	}
+
+	// --- tower crane: a chain of checks of its own, alongside the others ---
+
+	protected float m_CrateLow;
+	protected vector m_CrateBeforeSlew;
+	protected float m_CraneHeading;
+
+	float CraneOnMast()
+	{
+		return m_Crane.GetPosition()[1] - m_Mast.GetPosition()[1] - BM_MAST_HEIGHT;
+	}
+
+	void TestCraneStart()
+	{
+		if (!m_Crane || !m_Mast || !m_Crate)
+		{
+			Print("[BMTest] FAIL crane, mast or crate missing");
+			ChainDone();
+			return;
+		}
+		CheckMachine(m_Crane, "4 3.2 1.2");
+		Check(Math.AbsFloat(CraneOnMast()) < 0.3, "crane: the top stands on the mast (" + CraneOnMast() + " m off the walkway)");
+		Check(m_Mast.MemoryPointExists("ladder1_con") && m_Mast.MemoryPointExists("ladder1"), "crane: the mast has its ladder");
+		// hook all the way down, onto the crate
+		m_Crane.OnControl(BM_Control.RAISE, -1);
+		GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).CallLater(TestCraneHookDown, 18000, false);
+	}
+
+	void TestCraneHookDown()
+	{
+		int hook = BM_TowerCrane.HOOK;
+		Check(m_Crane.GetJointPhase(hook) < 0.01 && m_Crane.GetJointDir(hook) == 0, "crane: hook down to its end and stopped (" + m_Crane.GetJointPhase(hook) + ")");
+		float gap = m_Crane.GetHookTip()[1] - GetGame().SurfaceY(m_Crane.GetHookTip()[0], m_Crane.GetHookTip()[2]);
+		Check(gap > 0 && gap < 1.0, "crane: the hook reaches the ground (" + gap + " m above it)");
+		m_CrateLow = m_Crate.GetPosition()[1];
+		m_Crane.OnControl(BM_Control.BUCKET, 1);
+		Check(m_Crane.GetLoad() == m_Crate && m_Crane.IsLoaded(), "crane: latched the crate");
+		m_Crane.OnControl(BM_Control.RAISE, 1);
+		GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).CallLater(TestCraneLifted, 5000, false);
+	}
+
+	void TestCraneLifted()
+	{
+		m_Crane.OnControl(BM_Control.RAISE, 0);
+		float rose = m_Crate.GetPosition()[1] - m_CrateLow;
+		Check(rose > 5, "crane: the crate went up with the hook (" + rose + " m)");
+		float under = vector.Distance(Vector(m_Crate.GetPosition()[0], 0, m_Crate.GetPosition()[2]), Vector(m_Crane.GetHookTip()[0], 0, m_Crane.GetHookTip()[2]));
+		Check(under < 0.2, "crane: it hangs under the hook (" + under + " m off)");
+		m_CrateBeforeSlew = m_Crate.GetPosition();
+		m_CraneHeading = m_Crane.GetOrientation()[0];
+		m_Crane.OnControl(BM_Control.SLEW, 1);
+		GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).CallLater(TestCraneSlewed, 3000, false);
+	}
+
+	void TestCraneSlewed()
+	{
+		m_Crane.OnControl(BM_Control.SLEW, 0);
+		float turned = BM_SlewingMachine.WrapDegrees(m_Crane.GetOrientation()[0] - m_CraneHeading);
+		Check(turned < -25 && turned > -50, "crane: slewed left (" + turned + " deg)");
+		float carried = vector.Distance(m_CrateBeforeSlew, m_Crate.GetPosition());
+		Check(carried > 3, "crane: the crate swung round with the jib (" + carried + " m)");
+		Check(Math.AbsFloat(CraneOnMast()) < 0.3 && Math.AbsFloat(m_Crane.GetOrientation()[1]) < 3 && Math.AbsFloat(m_Crane.GetOrientation()[2]) < 3, "crane: still upright on the mast (" + CraneOnMast() + " m, " + m_Crane.GetOrientation() + ")");
+		m_Crane.OnControl(BM_Control.BUCKET, -1);
+		vector p = m_Crate.GetPosition();
+		float above = p[1] - GetGame().SurfaceY(p[0], p[2]);
+		Check(!m_Crane.IsLoaded() && Math.AbsFloat(above) < 0.5, "crane: let go, the crate is set down on the ground (" + above + " m)");
+		CheckSources(m_Crane);
+		ChainDone();
 	}
 };
 

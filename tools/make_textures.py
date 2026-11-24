@@ -9,8 +9,10 @@ Every decal is a _ca texture (colour + alpha) shown on a thin quad over the pain
 (rv.MeshBuilder.decal). The letters are drawn as shapes, not from a font: blocky F and T,
 and the A as a triangle, as on the vanilla logo plate.
 """
+import math
 import os
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -54,8 +56,42 @@ def letters_width(h):
     return w + 1.4 * s + w * 1.35 + 1.4 * s + w
 
 
+def periodic_noise(rng, h, w, sigma):
+    """Gaussian-filtered noise that wraps round (so a tiled decal has no seam): mean 0, std 1"""
+    fy, fx = np.meshgrid(np.fft.fftfreq(h), np.fft.fftfreq(w), indexing="ij")
+    g = np.exp(-2 * math.pi ** 2 * sigma ** 2 * (fx ** 2 + fy ** 2))
+    a = np.real(np.fft.ifft2(np.fft.fft2(rng.standard_normal((h, w))) * g))
+    return (a - a.mean()) / (a.std() + 1e-12)
+
+
+def wear(img, seed, amount=1.0):
+    """Weather a decal like the paint under it (tools/make_weathering.py): chips and scrapes
+    through it, faded patches, a little grime over it"""
+    rng = np.random.default_rng(seed)
+    a = np.asarray(img, dtype=np.float64) / 255.0
+    h, w = a.shape[:2]
+    unit = w / 512.0
+    chips = periodic_noise(rng, h, w, 2.5 * unit) + 0.9 * periodic_noise(rng, h, w, 30 * unit)
+    lost = np.clip((chips - (2.55 - 0.3 * amount)) / 0.15, 0, 1)
+    fade = np.clip(periodic_noise(rng, h, w, 60 * unit), 0, None) * 0.12 * amount
+    grime = np.clip(periodic_noise(rng, h, w, 3 * unit) * 0.5 + periodic_noise(rng, h, w, 40 * unit), 0, None)
+    a[..., :3] = a[..., :3] * (1 - fade[..., None]) + fade[..., None] * 0.6
+    a[..., :3] *= (1 - 0.18 * amount * np.clip(grime, 0, 1))[..., None]
+    scr = Image.new("L", (w, h), 0)
+    d = ImageDraw.Draw(scr)
+    for _ in range(int(6 * amount)):
+        x, y = rng.uniform(0, w), rng.uniform(0, h)
+        ang = rng.normal(0, 0.3)
+        ln = rng.uniform(0.04, 0.15) * min(w, 2 * h)
+        d.line([(x, y), (x + math.cos(ang) * ln, y + math.sin(ang) * ln)], fill=255, width=max(1, int(unit)))
+    lost = np.maximum(lost, np.asarray(scr, dtype=np.float64) / 255.0 * 0.8)
+    a[..., 3] *= 1 - lost
+    return Image.fromarray((np.clip(a, 0, 1) * 255 + 0.5).astype(np.uint8), "RGBA")
+
+
 def save(img, name):
     os.makedirs(OUT, exist_ok=True)
+    img = wear(img, sum(map(ord, name)))
     img.save(os.path.join(OUT, name))
     print("drew", name, img.size)
 
@@ -119,6 +155,7 @@ def main():
     save(hazard(), "bm_hazard_ca.png")
     save(badge("FAT 218"), "bm_badge_exc_ca.png")
     save(badge("FAT D14"), "bm_badge_dozer_ca.png")
+    save(badge("FAT TC30"), "bm_badge_crane_ca.png")
 
 
 main()

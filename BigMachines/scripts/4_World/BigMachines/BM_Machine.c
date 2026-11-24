@@ -8,7 +8,10 @@
 class BM_Machine extends CarScript
 {
 	static const int MAX_JOINTS = 4;
-	static const int STORE_VERSION = 1;
+	static const int STORE_VERSION = 2;		//!< 2: the wreck it replaced (BM_Wrecks)
+	static const int LIFETIME = 3888000;		//!< seconds unused before the CE removes it (45 days, as vanilla cars)
+
+	protected static ref array<BM_Machine> s_All = new array<BM_Machine>();		//!< server: every machine
 
 	protected ref array<string> m_JointSources = new array<string>();
 	protected ref array<ref array<string>> m_JointLinked = new array<ref array<string>>();	//!< its cylinders' sources
@@ -20,6 +23,13 @@ class BM_Machine extends CarScript
 	protected float m_J0, m_J1, m_J2, m_J3;
 	protected int m_D0, m_D1, m_D2, m_D3;
 	protected int m_JointLastTick;
+
+	// The map wreck this machine took the place of (BM_Wrecks): its class or model, where it
+	// was, where the machine was put down and facing which way. None for one spawned otherwise.
+	protected string m_HomeMatch;
+	protected vector m_HomePos;
+	protected vector m_HomeBase;
+	protected float m_HomeYaw;
 
 	void BM_Machine()
 	{
@@ -274,6 +284,55 @@ class BM_Machine extends CarScript
 		return driver && sender && driver.GetIdentity() && driver.GetIdentity().GetId() == sender.GetId();
 	}
 
+	// --- home: the wreck it replaced ---
+
+	//! Server: every machine in the world
+	static array<BM_Machine> GetAll()
+	{
+		return s_All;
+	}
+
+	void SetHome(string match, vector pos, vector base, float yaw)
+	{
+		m_HomeMatch = match;
+		m_HomePos = pos;
+		m_HomeBase = base;
+		m_HomeYaw = yaw;
+	}
+
+	bool HasHome()
+	{
+		return m_HomeMatch != "";
+	}
+
+	string GetHomeMatch()
+	{
+		return m_HomeMatch;
+	}
+
+	vector GetHomePos()
+	{
+		return m_HomePos;
+	}
+
+	vector GetHomeBase()
+	{
+		return m_HomeBase;
+	}
+
+	float GetHomeYaw()
+	{
+		return m_HomeYaw;
+	}
+
+	//! Server, after spawning one by script: script-spawned vehicles get a 3 s lifetime and
+	//! the CE cleanup deletes them
+	void KeepAround()
+	{
+		SetLifetimeMax(LIFETIME);
+		SetLifetime(LIFETIME);
+	}
+
 	override void OnStoreSave(ParamsWriteContext ctx)
 	{
 		super.OnStoreSave(ctx);
@@ -281,6 +340,10 @@ class BM_Machine extends CarScript
 		ctx.Write(JointCount());
 		for (int j = 0; j < JointCount(); j++)
 			ctx.Write(GetJointPhase(j));
+		ctx.Write(m_HomeMatch);
+		ctx.Write(m_HomePos);
+		ctx.Write(m_HomeBase);
+		ctx.Write(m_HomeYaw);
 	}
 
 	override bool OnStoreLoad(ParamsReadContext ctx, int version)
@@ -298,12 +361,21 @@ class BM_Machine extends CarScript
 			if (j < JointCount())
 				SetJointPhase(j, phase);
 		}
+		if (ours >= 2)
+		{
+			if (!ctx.Read(m_HomeMatch) || !ctx.Read(m_HomePos) || !ctx.Read(m_HomeBase) || !ctx.Read(m_HomeYaw))
+				return false;
+		}
 		return true;
 	}
 
 	override void AfterStoreLoad()
 	{
 		super.AfterStoreLoad();
+		// The wreck it replaced is back on the map after a restart, where the machine may still
+		// stand: hide it now, before anything moves, or the physics shoves the machine out of it
+		if (GetGame().IsServer() && HasHome() && !IsRuined())
+			BM_Wrecks.Hide(m_HomeMatch, m_HomePos);
 		ApplyJoints();
 		SetSynchDirty();
 	}
@@ -313,6 +385,8 @@ class BM_Machine extends CarScript
 		super.EEInit();
 		if (GetGame().IsServer())
 		{
+			if (s_All.Find(this) < 0)
+				s_All.Insert(this);
 			ApplyJoints();
 			// After a load the rollers are already there; FitRollers only fills empty slots
 			GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(FitRollers, 100, false);
@@ -321,6 +395,7 @@ class BM_Machine extends CarScript
 
 	override void EEDelete(EntityAI parent)
 	{
+		s_All.RemoveItem(this);
 		GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(JointTick);
 		super.EEDelete(parent);
 	}

@@ -58,9 +58,9 @@ LOGO, STRIPE, LETTERS, HAZARD, BADGE = range(7, 12)     # livery decals (crawler
 
 def materials():
     return [
-        rv.color_material("paint_yellow", (0.80, 0.55, 0.08), 0.55, 0.3),
-        rv.color_material("steel_dark", (0.16, 0.16, 0.16), 0.5, 0.7),
-        rv.color_material("track_steel", (0.10, 0.09, 0.08), 0.8, 0.6),
+        rv.weathered_material("paint_yellow", (0.80, 0.55, 0.08), 0.55, 0.3),
+        rv.weathered_material("steel_dark", (0.16, 0.16, 0.16), 0.5, 0.7),
+        rv.weathered_material("track_steel", (0.10, 0.09, 0.08), 0.8, 0.6),
         rv.color_material("seat_vinyl", (0.06, 0.06, 0.06), 0.7, 0.0),
         rv.color_material("cylinder_chrome", (0.70, 0.70, 0.72), 0.25, 1.0),
         *crawler.detail_materials(),

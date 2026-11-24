@@ -87,9 +87,9 @@ def materials():
     glass.a3ob_properties_material.texture_type = "CUSTOM"
     glass.a3ob_properties_material.color_raw = "#(argb,8,8,3)color(0.25,0.30,0.35,0.35,ca)"
     return [
-        rv.color_material("paint_yellow", (0.80, 0.55, 0.08), 0.55, 0.3),
-        rv.color_material("steel_dark", (0.16, 0.16, 0.16), 0.5, 0.7),
-        rv.color_material("track_steel", (0.10, 0.09, 0.08), 0.8, 0.6),
+        rv.weathered_material("paint_yellow", (0.80, 0.55, 0.08), 0.55, 0.3),
+        rv.weathered_material("steel_dark", (0.16, 0.16, 0.16), 0.5, 0.7),
+        rv.weathered_material("track_steel", (0.10, 0.09, 0.08), 0.8, 0.6),
         rv.color_material("seat_vinyl", (0.06, 0.06, 0.06), 0.7, 0.0),
         rv.color_material("cylinder_chrome", (0.70, 0.70, 0.72), 0.25, 1.0),
         glass,

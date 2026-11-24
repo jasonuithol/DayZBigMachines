@@ -39,12 +39,12 @@ Steps for each machine:
 
 | Machine | Model | Moving parts | Vehicle class | Controls | Sounds | On the map | Tested |
 |---|---|---|---|---|---|---|---|
-| 1 Bulldozer | [x] v0.2, FAT livery decals, flat paint | [x] blade | [x] | [x] blade keys | [~] MS3 truck sounds | [ ] | [~] see below |
-| 2 Excavator | [x] v0.2, FAT livery decals, flat paint | [x] slew, boom, stick, bucket | [x] | [x] | [~] MS3 truck sounds | [ ] | [~] see below |
+| 1 Bulldozer | [x] v0.2, FAT livery, weathered paint | [x] blade | [x] | [x] blade keys | [~] MS3 truck sounds | [x] replaces a share of wrecks | [~] see below |
+| 2 Excavator | [x] v0.2, FAT livery, weathered paint | [x] slew, boom, stick, bucket | [x] | [x] | [~] MS3 truck sounds | [x] replaces a share of wrecks | [~] see below |
 | 3 Mining excavator | [ ] | [ ] slew, boom, bucket | [ ] | [ ] | [ ] | [ ] | [ ] |
 | 4 Mining haul truck | [ ] | [ ] tipper | [ ] | [ ] | [ ] | [ ] | [ ] |
 | 5 Crawler crane | [ ] | [ ] slew, boom, hook | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 6 Tower crane (fixed; operate, not drive) | [ ] | [ ] slew, trolley, hook | [ ] | [ ] | [ ] | [ ] | [ ] |
+| 6 Tower crane (fixed; operate, not drive) | [x] v0.1, mast + slewing top, FAT livery, weathered | [x] slew, trolley, hook, latch items | [x] | [x] | [ ] none yet | [x] replaces a share of cranes | [~] see below |
 | 7 Concrete mixer | [ ] | [ ] drum | [ ] | [ ] | [ ] | [ ] | [ ] |
 
 ### Bulldozer status (2026-11-24)
@@ -67,11 +67,13 @@ To do for the bulldozer:
 - [x] Sprockets/idlers no longer stick out of the tracks or jump about: the game moves the
   wheel bones with the suspension, so the rollers are invisible and the sprockets are fixed to
   the track frame (blender/crawler.py); they don't turn yet
-- [ ] Textures (weathered paint, track links) instead of flat colours; a View Pilot LOD for the cab
+- [x] Weathered textures (tools/make_weathering.py: worn paint, chips, rust streaks, grime, muddy
+  tracks; box-projected 2 m tiles), worn decals (2026-11-24, checked in game)
+- [ ] A View Pilot LOD for the cab; track links
 - [ ] Track animation (texture scroll or moving links) and turning sprockets
 - [ ] Turn on the spot (skid steer) instead of car-style steering
 - [x] Keep the blade position across restarts (every joint is saved; checked on the excavator)
-- [ ] Replace the map's static Wreck_Bulldozer objects with working machines (all 4 maps)
+- [x] Replace a share of the map's Wreck_Bulldozer objects with working machines (see "On the map")
 - [ ] Silence the engine warning "Second driver found when parsing class Crew::Crew" (harmless)
 
 ### Excavator status (2026-11-24)
@@ -108,14 +110,73 @@ To do for the excavator:
   shovel); cylinder rods slide in their barrels instead of swinging with the part they push
 - [x] The stick and bucket keys worked the wrong parts: two model.cfg animations shared a
   source, which shifts every source after them. Each now has its own; tools/test.sh checks it
-- [ ] Textures (weathered paint); a View Pilot LOD for the cab
+- [x] Weathered textures; [ ] a View Pilot LOD for the cab
 - [ ] Digging: something for the bucket to pick up or move (dirt piles, loose items)
 - [x] Drive along the tracks, not the cab, after a slew (found in the first playtest;
   Autobot: slewed 94 deg, drove 6.6 m at 69.7 deg with the tracks at 70.1; reverse, steering,
   pivot turns; server and client agree)
 - [ ] Engine sound: the wheels spin freely, so it revs to ~2300 rpm on throttle whatever the
   ground speed
-- [ ] Replace the map's static Wreck_Digger objects with working machines (all 4 maps)
+- [x] Replace a share of the map's Wreck_Digger objects with working machines (see "On the map")
+
+### Tower crane status (2026-11-24)
+
+Two objects, because the game's ladders only work on buildings: `BM_TowerCraneMast`, a building
+(concrete footing, 30 m lattice mast, ladder up its side, a walkway with handrails at the top),
+and `BM_TowerCrane`, the working top (slewing column, cab, A-frame head, 30 m jib, trolley,
+hook on a telescoping cable, counter-jib with counterweights) standing on the walkway on four
+hidden wheels. Climb the ladder, step off on the walkway, get in at the short ladder under the
+cab. Controls: arrows slew (12 deg/s, the whole top turns), Home/End trolley out/in, PageUp/
+PageDown hook up/down, Insert latches the nearest loose item or crate within 1.5 m of the hook,
+Delete lets go and sets it down on the first surface below. The top holds itself level and
+still on the mast (BM_SlewingMachine, shared with the excavator). The test mission spawns one
+at 5075/2420 with a wooden crate.
+
+Verified in game with DayZAutobot: climb the ladder up (about 55 s) and step off; get in from
+the walkway; slew 36.8 deg in 3 s with server and client agreeing; trolley and hook; lower onto
+a crate, latch it, lift it 9 m (the client draws it on the hook), set it down on the ground; get
+out onto the walkway; get on the ladder at the top and climb down. Headless: the top stands
+level on the mast, the hook reaches the ground, latch/lift/slew/release, every animation source.
+
+Not yet checked by a person: how it feels, the keys themselves.
+
+To do for the tower crane:
+- [ ] Sounds (slew motor, hoist winch)
+- [ ] Lift vehicles (only items and crates for now)
+- [ ] A load hanging at a restart stays where it was in mid-air (it isn't saved as hanging)
+- [x] Replace a share of the maps' Land_Construction_Crane objects (see "On the map"); a saved
+  top puts its mast back as it loads (AfterStoreLoad) and re-centres itself on it
+- [x] Getting on the ladder at the top (found in the first playtest: you were stuck up there).
+  The ladder's view geometry now reaches above the walkway so you can aim at it, and the
+  top get-on point is just in from the notch edge (you must stand inward of it)
+- [ ] The ladder's rungs seemed closer together near the top (playtest); not looked into yet
+- [ ] Hook height is fixed to 30 m of travel: on a slope the hook stops short of or above the ground
+
+## On the map (2026-11-24)
+
+`BM_Wrecks` (scripts/4_World): at every server start, a share of each map's bulldozer and digger
+wrecks and tower cranes are working machines instead (`$profile:BigMachines/BigMachinesSettings.json`:
+BulldozerPercent / ExcavatorPercent / TowerCranePercent, 25% by default; FuelPercentMin/Max;
+SpawnWithBattery, default off). Destroyed machines are cleared away at the start and new ones
+take other wrecks' places, chosen at random. The site list (`BM_WreckSites.c`) is generated from
+`data/construction_vehicles.csv` by `tools/make_sites.py`.
+
+A machine remembers its wreck (saved, store version 2), which stays hidden while it exists.
+Hidden = sunk 300 m underground on the server and on every client (map objects aren't networked;
+the list goes to each player as they join), swept back down every second (DayZMolotov's method).
+The wreck must be hidden as the machine loads (AfterStoreLoad), or physics shoves the machine out
+of it before the mission starts: 1-3 m and up to 66 deg per restart, cranes 1 m across the mast.
+The bulldozer wreck's blade is at its back (yaw offset 180); the digger faces like ours.
+
+Verified: Chernarus in game (wrecks gone up close, machines and cranes in place, the Prigorodki
+crane at the building site), positions held across restarts, nothing new spawned while enough
+remain; Livonia 4+6, Sakhal 6+6+1, Nasdara 17+13+3 placed headless, every listed wreck found,
+all 33 Nasdara machines settled where put. On a client, wrecks outside the player's loaded area
+can't be moved, so they're "re-sunk" every second until the player comes near: harmless.
+
+To do:
+- [ ] Modded maps: no site list (could scan for the wreck models at the first start)
+- [ ] A wreck can show for up to a second as a player first comes near (client sweep)
 
 ## Main sites
 

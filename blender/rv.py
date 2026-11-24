@@ -28,6 +28,8 @@ LOD_FIRE_GEOMETRY = "15"
 
 X_AXIS_ROT = Matrix.Rotation(math.radians(90), 4, "Y")  # turns a Z-aligned cylinder onto X
 
+WEATHER_TILE = 2.0      # metres across one square of the weathered textures (tools/make_weathering.py)
+
 
 def enable_addon():
     addon_utils.enable(A3OB_MODULE, default_set=False)
@@ -82,9 +84,26 @@ def texture_material(name, game_path, png_path, rvmat=""):
     return mat
 
 
+def weathered_material(name, color, roughness=0.6, metallic=0.0):
+    """Material with a weathered tiling texture set (tools/make_weathering.py): bm_<name>_co.paa
+    and bm_<name>.rvmat in game, the colour PNG in Blender previews. Mapped by box projection
+    (MeshBuilder.to_object)."""
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    mat = texture_material(name, f"BigMachines\\data\\bm_{name}_co.paa",
+                           os.path.join(root, "textures", f"bm_{name}_co.png"),
+                           rvmat=f"BigMachines\\data\\bm_{name}.rvmat")
+    mat.blend_method = "OPAQUE"
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Roughness"].default_value = roughness
+    bsdf.inputs["Metallic"].default_value = metallic
+    return mat
+
+
 class MeshBuilder:
     """Accumulates parts into one bmesh, tracking material and selections per part.
-    Everything but decals has UVs at 0 (flat colour textures)."""
+    Decals get their own UVs; everything else is box-projected in metres (WEATHER_TILE to a
+    texture square), up the texture being up the world on walls."""
 
     def __init__(self):
         self.bm = bmesh.new()
@@ -258,6 +277,19 @@ class MeshBuilder:
         # P3D faces must be tris or quads; collision LODs are fully triangulated so
         # convexity is unambiguous.
         uv_layer = self.bm.loops.layers.uv.verify()
+        self.bm.normal_update()
+        t = WEATHER_TILE
+        for face in self.bm.faces:
+            n = face.normal
+            ax, ay, az = abs(n.x), abs(n.y), abs(n.z)
+            for loop in face.loops:
+                p = loop.vert.co
+                if az >= ax and az >= ay:
+                    loop[uv_layer].uv = (p.x / t, p.y / t)
+                elif ax >= ay:
+                    loop[uv_layer].uv = (p.y / t, p.z / t)
+                else:
+                    loop[uv_layer].uv = (p.x / t, p.z / t)
         for face, uvs in self.face_uvs:
             for loop, uv in zip(face.loops, uvs):
                 loop[uv_layer].uv = uv

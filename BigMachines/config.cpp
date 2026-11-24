@@ -2,7 +2,7 @@ class CfgPatches
 {
 	class BigMachines
 	{
-		units[] = {"BM_Bulldozer", "BM_Excavator"};
+		units[] = {"BM_Bulldozer", "BM_Excavator", "BM_TowerCrane", "BM_TowerCraneMast"};
 		weapons[] = {};
 		requiredVersion = 0.1;
 		requiredAddons[] = {"DZ_Data", "DZ_Scripts", "DZ_Vehicles_Wheeled", "DZ_Vehicles_Parts", "DZ_Sounds_Effects"};
@@ -100,6 +100,35 @@ class CfgSlots
 		selection = "wheel_2_2";
 		ghostIcon = "set:dayz_inventory image:wheel";
 	};
+	// The tower crane's top stands on its mast on four small hidden wheels
+	class Slot_BM_Crane_Roller_1_1
+	{
+		name = "BM_Crane_Roller_1_1";
+		displayName = "Slewing ring roller, left front";
+		selection = "wheel_1_1";
+		ghostIcon = "set:dayz_inventory image:wheel";
+	};
+	class Slot_BM_Crane_Roller_1_2: Slot_BM_Crane_Roller_1_1
+	{
+		name = "BM_Crane_Roller_1_2";
+		displayName = "Slewing ring roller, left back";
+		selection = "wheel_1_2";
+		ghostIcon = "set:dayz_inventory image:wheel";
+	};
+	class Slot_BM_Crane_Roller_2_1: Slot_BM_Crane_Roller_1_1
+	{
+		name = "BM_Crane_Roller_2_1";
+		displayName = "Slewing ring roller, right front";
+		selection = "wheel_2_1";
+		ghostIcon = "set:dayz_inventory image:wheel";
+	};
+	class Slot_BM_Crane_Roller_2_2: Slot_BM_Crane_Roller_1_1
+	{
+		name = "BM_Crane_Roller_2_2";
+		displayName = "Slewing ring roller, right back";
+		selection = "wheel_2_2";
+		ghostIcon = "set:dayz_inventory image:wheel";
+	};
 };
 
 class CfgNonAIVehicles
@@ -123,6 +152,11 @@ class CfgNonAIVehicles
 	{
 		model = "BigMachines\excavator\proxy\bm_exc_roller.p3d";
 		inventorySlot[] = {"BM_Exc_Roller_1_1", "BM_Exc_Roller_1_2", "BM_Exc_Roller_2_1", "BM_Exc_Roller_2_2"};
+	};
+	class Proxybm_crane_roller: ProxyVehiclePart
+	{
+		model = "BigMachines\tower_crane\proxy\bm_crane_roller.p3d";
+		inventorySlot[] = {"BM_Crane_Roller_1_1", "BM_Crane_Roller_1_2", "BM_Crane_Roller_2_1", "BM_Crane_Roller_2_2"};
 	};
 };
 
@@ -185,8 +219,8 @@ class CfgVehicles
 		width = 0.6;
 		tyreType = 0;
 		tyreOffroadResistance = 1.0;
-		// next to no grip: the wheels only hold the machine up, TrackDrive (BM_Excavator.c)
-		// moves it along the tracks
+		// next to no grip: the wheels only hold the machine up, TrackDrive
+		// (BM_SlewingMachine.c) moves it along the tracks
 		tyreRollResistance = 0.01;
 		tyreGrip = 0.02;
 		tyreRoughness = 1.0;
@@ -208,6 +242,35 @@ class CfgVehicles
 	class BM_ExcavatorRoller_Ruined: BM_ExcavatorRoller
 	{
 		scope = 1;
+	};
+	//! The tower crane's top stands on its mast on four of these; like the excavator's, they
+	//! have next to no grip (BM_SlewingMachine holds the top still) and an invisible model
+	class BM_CraneRoller: BM_ExcavatorRoller
+	{
+		displayName = "Slewing ring roller";
+		descriptionShort = "A roller from a tower crane's slewing ring.";
+		model = "BigMachines\tower_crane\proxy\bm_crane_roller.p3d";
+		weight = 20000;
+		itemSize[] = {4, 4};
+		inventorySlot[] = {"BM_Crane_Roller_1_1", "BM_Crane_Roller_1_2", "BM_Crane_Roller_2_1", "BM_Crane_Roller_2_2"};
+		radiusByDamage[] = {0, 0.15, 0.3, 0.15, 0.9998, 0.15, 0.9999, 0.13};
+		radius = 0.15;
+		width = 0.12;
+	};
+	class BM_CraneRoller_Ruined: BM_CraneRoller
+	{
+		scope = 1;
+	};
+
+	//! The tower crane's mast: a building, because ladders only work on buildings. The
+	//! ladder is memory points in the model (blender/build_tower_crane.py); the top is a
+	//! BM_TowerCrane standing on the walkway
+	class HouseNoDestruct;
+	class BM_TowerCraneMast: HouseNoDestruct
+	{
+		scope = 1;
+		displayName = "Tower crane mast";
+		model = "BigMachines\tower_crane\bm_crane_mast.p3d";
 	};
 
 	// What the machines share: a slow diesel on one gear, four roller wheels on two locked
@@ -309,7 +372,9 @@ class CfgVehicles
 					maxBrakeTorque = 40000;
 					maxHandbrakeTorque = 50000;
 					wheelHubMass = 60;
-					wheelHubRadius = 0.40;
+					// the rim a missing wheel leaves: the rollers never come off, and a hub
+					// bigger than the tower crane's 0.15 m rollers loses them (WheelCountPresent 0)
+					wheelHubRadius = 0.12;
 					class Differential
 					{
 						ratio = 20;
@@ -704,6 +769,119 @@ class CfgVehicles
 					class Cyl2: Cyl2
 					{
 						radius = 2.4;
+					};
+				};
+			};
+		};
+	};
+
+	//! The tower crane's top: cab, jib, trolley, hook, counter-jib. It stands on a
+	//! BM_TowerCraneMast and only slews (BM_TowerCrane.c)
+	class BM_TowerCrane: BM_Machine
+	{
+		scope = 2;
+		displayName = "Tower crane";
+		descriptionShort = "The working top of a tower crane: climb the mast, sit in the cab, slew the jib, run the trolley and the hook.";
+		model = "BigMachines\tower_crane\bm_tower_crane.p3d";
+		attachments[] = {"TruckBattery", "BM_Crane_Roller_1_1", "BM_Crane_Roller_1_2", "BM_Crane_Roller_2_1", "BM_Crane_Roller_2_2"};
+
+		class SimulationModule: SimulationModule
+		{
+			class Axles: Axles
+			{
+				class Front: Front
+				{
+					class Wheels: Wheels
+					{
+						class Left: Left
+						{
+							inventorySlot = "BM_Crane_Roller_1_1";
+						};
+						class Right: Right
+						{
+							inventorySlot = "BM_Crane_Roller_2_1";
+						};
+					};
+				};
+				class Rear: Rear
+				{
+					class Wheels: Wheels
+					{
+						class Left: Left
+						{
+							inventorySlot = "BM_Crane_Roller_1_2";
+						};
+						class Right: Right
+						{
+							inventorySlot = "BM_Crane_Roller_2_2";
+						};
+					};
+				};
+			};
+		};
+
+		// Driven by BM_Machine.c; offsets and phases: blender/build_tower_crane.py.
+		// trolley: 0 in, 1 out (24 m); hook: 0 down (27.3 m), 1 up. The cable pieces move
+		// with the hook, each on its own source (never share one: see BM_Machine.AddJoint)
+		class AnimationSources
+		{
+			class trolley
+			{
+				source = "user";
+				initPhase = 0.25;
+				animPeriod = 10;
+			};
+			class hook
+			{
+				source = "user";
+				initPhase = 1.0;
+				animPeriod = 16.7;
+			};
+			class cable2: hook {};
+			class cable3: hook {};
+			class cable4: hook {};
+			class cable5: hook {};
+			class cable6: hook {};
+			class cable7: hook {};
+		};
+
+		class DamageSystem: DamageSystem
+		{
+			class DamageZones: DamageZones
+			{
+				class Jib
+				{
+					displayName = "Jib";
+					fatalInjuryCoef = -1;
+					memoryPoints[] = {"dmgZone_jib"};
+					componentNames[] = {"dmgZone_jib"};
+					class Health
+					{
+						hitpoints = 20000;
+						transferToGlobalCoef = 0;
+						healthLevels[] = {{1.0, {}}, {0.7, {}}, {0.5, {}}, {0.3, {}}, {0.0, {}}};
+					};
+					transferToZonesNames[] = {};
+					transferToZonesCoefs[] = {};
+					inventorySlots[] = {};
+					inventorySlotsCoefs[] = {};
+				};
+			};
+		};
+
+		class ObstacleGenerator: ObstacleGenerator
+		{
+			class Shapes: Shapes
+			{
+				class Cylindric: Cylindric
+				{
+					class Cyl1: Cyl1
+					{
+						radius = 0.5;
+					};
+					class Cyl2: Cyl2
+					{
+						radius = 0.5;
 					};
 				};
 			};

@@ -79,11 +79,12 @@ class BM_Cmd_State : AB_Command
 			joints.Obj(o);
 		}
 		c.R.Str("type", machine.GetType()).Arr("joints", joints);
-		BM_Excavator excavator = BM_Excavator.Cast(machine);
-		if (excavator)
+		BM_SlewingMachine slewing = BM_SlewingMachine.Cast(machine);
+		if (slewing)
 		{
-			c.R.Num("slew", excavator.GetSlew()).Num("slew_anim", excavator.GetAnimationPhase(BM_Excavator.SLEW_SOURCE));
-			c.R.Vec("tracks", excavator.GetTrackDirection());
+			c.R.Num("slew", slewing.GetSlew()).Vec("tracks", slewing.GetTrackDirection());
+			if (slewing.GetSlewSource() != "")
+				c.R.Num("slew_anim", slewing.GetAnimationPhase(slewing.GetSlewSource()));
 		}
 		c.R.Int("wheels_present", machine.WheelCountPresent()).Num("speed_kmh", machine.GetSpeedometer());
 		int contact = 0;
