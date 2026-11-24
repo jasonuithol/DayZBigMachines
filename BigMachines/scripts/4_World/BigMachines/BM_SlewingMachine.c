@@ -4,20 +4,11 @@
 //! GetSlewSource). m_Slew is the angle turned. The server turns the machine and syncs m_Slew;
 //! the driver's client turns it in step (see SlewSpin).
 //!
-//! Moving. The physics wheels have next to no grip and only hold the machine up. Each physics
-//! step TrackDrive sets the ground speed along the tracks from the driver's throttle, brake and
-//! gear, stops any sideways slide, and turns the machine on the spot when steering; a machine
-//! that can't drive (CanDrive) is held still.
+//! Driving is BM_Machine's TrackDrive, along the tracks (GetTrackDirection: turned back by the
+//! slew); a slew stops it steering, and a machine that can't drive (CanDrive) holds itself level.
 class BM_SlewingMachine extends BM_Machine
 {
-	static const float TRACK_SPEED = 1.53;			//!< m/s flat out forwards (5.5 km/h)
-	static const float TRACK_SPEED_REVERSE = 1.2;	//!< m/s flat out backwards
-	static const float TRACK_ACCEL = 1.5;			//!< m/s^2 speeding up
-	static const float TRACK_COAST = 2.0;			//!< m/s^2 slowing down off the throttle
-	static const float TRACK_BRAKE = 4.0;			//!< m/s^2 slowing down on full brake
-	static const float TRACK_TURN_RATE = 20;		//!< degrees a second, steering full lock
 	static const float LEVEL_RATE = 4;				//!< a machine that can't drive levels itself: 1/s
-
 	static const float SLEW_RATE = 36;			//!< degrees a second
 	static const float SLEW_SETTLE_SECS = 0.5;	//!< after letting go, heading changes still count
 
@@ -35,7 +26,6 @@ class BM_SlewingMachine extends BM_Machine
 	{
 		RegisterNetSyncVariableFloat("m_Slew", -180, 180, 2);
 		RegisterNetSyncVariableInt("m_SlewDir", -1, 1);
-		SetEventMask(EntityEvent.SIMULATE);
 	}
 
 	override bool HasControl(int control)
@@ -180,137 +170,41 @@ class BM_SlewingMachine extends BM_Machine
 		}
 	}
 
-	// --- driving ---
-
-	//! 1 in a forward gear, -1 in reverse, 0 in neutral or park
-	protected int DriveDirection()
-	{
-		if (GearboxGetType() == CarGearboxType.AUTOMATIC)
-		{
-			CarAutomaticGearboxMode mode = GearboxGetMode();
-			if (mode == CarAutomaticGearboxMode.D)
-				return 1;
-			if (mode == CarAutomaticGearboxMode.R)
-				return -1;
-			return 0;
-		}
-		int gear = GetGear();
-		if (gear == CarGear.REVERSE)
-			return -1;
-		if (gear == CarGear.NEUTRAL)
-			return 0;
-		return 1;
-	}
-
-	//! Whether the driver drives it about (the excavator) or it only slews (the tower crane)
-	bool CanDrive()
-	{
-		return true;
-	}
+	// --- driving (BM_Machine.TrackDrive) ---
 
 	//! The direction the tracks point, in world space (the house's forward turned back by m_Slew)
-	vector GetTrackDirection()
+	override vector GetTrackDirection()
 	{
 		float s = m_Slew * Math.DEG2RAD;
 		return VectorToParent(Vector(-Math.Sin(s), 0, Math.Cos(s)));
 	}
 
-	static float MoveTowards(float from, float to, float step)
+	//! The tracks' middles turn back by the slew, as GetTrackDirection
+	override vector GetTrackCentreLS(int side)
 	{
-		if (from < to)
-			return Math.Min(from + step, to);
-		return Math.Max(from - step, to);
+		vector c = super.GetTrackCentreLS(side);
+		float s = m_Slew * Math.DEG2RAD;
+		float cs = Math.Cos(s);
+		float sn = Math.Sin(s);
+		return Vector(c[0] * cs - c[2] * sn, c[1], c[0] * sn + c[2] * cs);
 	}
 
-	//! Each physics step, wherever the machine is simulated (the server, and the driver's client
-	//! predicting it)
-	override void EOnSimulate(IEntity other, float dt)
+	//! Slewing turns the machine itself: the tracks don't steer meanwhile
+	protected override bool TrackTurnHeld()
 	{
-		super.EOnSimulate(other, dt);
-		if (!IsProxy() && dt > 0)
-			TrackDrive(dt);
+		return m_SlewTurning || m_SlewCounting > 0;
 	}
 
-	protected void TrackDrive(float dt)
+	//! A machine that only slews (the tower crane's top, on its mast) stays level: turn it back
+	//! upright, keeping only the slew's turn about the vertical
+	protected override void HoldStill(vector up, vector spin)
 	{
-		int contact = 0;
-		for (int w = 0; w < WheelCount(); w++)
-		{
-			if (WheelHasContact(w))
-				contact++;
-		}
-		if (contact < 2)
-			return;		// in the air: leave it to the physics
-
-		bool crewed = CrewMember(0) != null && CanDrive();
-		float throttle = 0;
-		float brake = 1;	// nobody aboard (or nothing to drive): hold it where it is
-		float steer = 0;
-		int dir = 0;
-		// The controls as they stand now: on the server, OnInput sees the driver's from the
-		// step before they arrive
-		if (crewed)
-		{
-			brake = Math.Max(GetBrake(), GetHandbrake());
-			steer = GetSteering();
-			if (EngineIsOn())
-			{
-				throttle = GetThrottle();
-				dir = DriveDirection();
-			}
-		}
-
-		vector up = VectorToParent("0 1 0");
-		vector track = GetTrackDirection();
-		vector vel = GetVelocity(this);
-		// Speed along the tracks, less what gravity added last step: the drive holds its speed
-		// on a slope, and holds it still there
-		float speed = vector.Dot(vel, track) + 9.81 * track[1] * dt;
-		float target = throttle * TRACK_SPEED;
-		if (dir < 0)
-			target = -throttle * TRACK_SPEED_REVERSE;
-		else if (dir == 0)
-			target = 0;
-		float rate = TRACK_COAST;
-		if (brake > 0.05)
-		{
-			target = 0;
-			rate = TRACK_BRAKE * brake;
-		}
-		else if (target * speed >= 0 && Math.AbsFloat(target) > Math.AbsFloat(speed))
-		{
-			rate = TRACK_ACCEL;
-		}
-		speed = MoveTowards(speed, target, rate * dt);
-		// along the tracks, plus whatever the suspension is doing; nothing sideways
-		vector newVel = track * speed + up * vector.Dot(vel, up);
-		if (vector.DistanceSq(newVel, vel) > 0.000001)
-			SetVelocity(this, newVel);
-
-		vector spin = dBodyGetAngularVelocity(this);
-		if (!CanDrive())
-		{
-			// A machine that only slews (the tower crane's top, on its mast) stays level: turn
-			// it back upright, keeping only the slew's turn about the vertical
-			vector worldUp = "0 1 0";
-			vector level = (up * worldUp) * LEVEL_RATE;		// cross product: the axis to tip back about
-			if (m_SlewTurning || m_SlewCounting > 0)
-				level = level + worldUp * vector.Dot(spin, worldUp);
-			if (vector.DistanceSq(level, spin) > 0.000001)
-				dBodySetAngularVelocity(this, level);
-			return;
-		}
-
-		// Turning: the tracks don't skid round by themselves, and steer like a car's wheels
-		// (backing up, right swings the front left). Slewing turns the machine itself.
-		if (m_SlewTurning || m_SlewCounting > 0)
-			return;
-		float yaw = steer * TRACK_TURN_RATE * Math.DEG2RAD;
-		if (speed < -0.05 || target < 0)
-			yaw = -yaw;
-		float spinUp = vector.Dot(spin, up);
-		if (Math.AbsFloat(spinUp - yaw) > 0.0001)
-			dBodySetAngularVelocity(this, spin + up * (yaw - spinUp));
+		vector worldUp = "0 1 0";
+		vector level = (up * worldUp) * LEVEL_RATE;		// cross product: the axis to tip back about
+		if (TrackTurnHeld())
+			level = level + worldUp * vector.Dot(spin, worldUp);
+		if (vector.DistanceSq(level, spin) > 0.000001)
+			dBodySetAngularVelocity(this, level);
 	}
 
 	override void OnVariablesSynchronized()

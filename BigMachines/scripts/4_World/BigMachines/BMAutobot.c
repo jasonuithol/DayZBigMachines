@@ -98,6 +98,28 @@ class BM_Cmd_State : AB_Command
 	}
 }
 
+//! Client: the nearest machine's tread phases; with phase=, show both treads at that phase
+//! (they stay there while the machine stands still)
+class BM_Cmd_Tread : AB_Command
+{
+	override bool Start()
+	{
+		BM_Machine machine = BM_AB.Find();
+		if (!machine)
+			return Fail("no big machine nearby");
+		float phase = c.Num("phase", -1);
+		if (phase >= 0)
+		{
+			for (int side = 0; side < 2; side++)
+				machine.ShowTreadAt(side, phase);
+		}
+		c.R.Str("type", machine.GetType()).Num("pitch", machine.GetTreadPitch());
+		c.R.Num("phase_1", machine.GetTreadPhase(0)).Num("phase_2", machine.GetTreadPhase(1));
+		c.R.Num("anim_top_1", machine.GetAnimationPhase("treadTop1")).Num("anim_front_2", machine.GetAnimationPhase("treadFront2"));
+		return true;
+	}
+}
+
 modded class AB_WorldCommands
 {
 	override void Register(AB_Registry reg)
@@ -105,6 +127,7 @@ modded class AB_WorldCommands
 		super.Register(reg);
 		reg.Add("bm_control", BM_Cmd_Control, "bm_control control=raise|slew|stick|bucket dir=1|-1|0 - Big Machines: work a control (client: sends the key RPC; server: direct)");
 		reg.Add("bm_blade", BM_Cmd_Control, "bm_blade dir=1|-1|0 - Big Machines: the blade or boom (bm_control control=raise)");
+		reg.Add("bm_tread", BM_Cmd_Tread, "bm_tread [phase=0..1] - Big Machines: the nearest machine's tread phases; phase= shows them there");
 		reg.Add("bm_state", BM_Cmd_State, "bm_state - Big Machines: the nearest machine's joints, wheels, speed");
 	}
 }

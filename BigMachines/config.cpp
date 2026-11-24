@@ -163,8 +163,8 @@ class CfgNonAIVehicles
 class CfgVehicles
 {
 	class CarWheel;
-	// A track end: the wheel the car simulation drives on. Fitted for good when the machine
-	// is created (BM_Machine.c) and can't be taken off.
+	// A track end: a wheel that only holds the machine up. Next to no grip: the tracks are
+	// scripted (BM_Machine.TrackDrive). Fitted for good when the machine is created.
 	class BM_DozerRoller: CarWheel
 	{
 		scope = 2;
@@ -180,11 +180,11 @@ class CfgVehicles
 		width = 0.56;
 		tyreType = 0;
 		tyreOffroadResistance = 1.0;
-		tyreRollResistance = 0.03;
-		tyreGrip = 1.0;
+		tyreRollResistance = 0.01;
+		tyreGrip = 0.02;
 		tyreRoughness = 1.0;
-		tyreLongitudinalFriction = 3.0;
-		tyreLateralFriction = 2.2;
+		tyreLongitudinalFriction = 0.05;
+		tyreLateralFriction = 0.05;
 		class DamageSystem
 		{
 			class GlobalHealth
@@ -563,14 +563,15 @@ class CfgVehicles
 		model = "BigMachines\bulldozer\bm_bulldozer.p3d";
 		attachments[] = {"TruckBattery", "BM_Dozer_Roller_1_1", "BM_Dozer_Roller_1_2", "BM_Dozer_Roller_2_1", "BM_Dozer_Roller_2_2"};
 
-		// About 10 km/h flat out: 2.0 x 20 (the axles' ratio), rollers 0.49 m
+		// Three gears; the speed in each is scripted (BM_Bulldozer.DOZER_SPEEDS: 4, 7, 10.6 km/h),
+		// the ratios only set the engine's revs
 		class SimulationModule: SimulationModule
 		{
 			class Gearbox
 			{
-				type = "GEARBOX_AUTOMATIC";
+				type = "GEARBOX_MANUAL";
 				reverse = 2.6;
-				ratios[] = {2.0};
+				ratios[] = {3.0, 2.0, 1.4};
 			};
 			class Axles: Axles
 			{
@@ -616,6 +617,21 @@ class CfgVehicles
 			};
 			class bladeCyl: bladeLift {};	// the lift cylinders and their rods, in step
 			class bladeRod: bladeLift {};	// (BM_Machine.AddJoint)
+			// The treads (model.cfg Tread*): set on each client from the ground speed
+			// (BM_Machine.TreadFrame), one source per animation
+			class treadTop1
+			{
+				source = "user";
+				initPhase = 0;
+				animPeriod = 0.01;
+			};
+			class treadBottom1: treadTop1 {};
+			class treadFront1: treadTop1 {};
+			class treadRear1: treadTop1 {};
+			class treadTop2: treadTop1 {};
+			class treadBottom2: treadTop1 {};
+			class treadFront2: treadTop1 {};
+			class treadRear2: treadTop1 {};
 		};
 
 		class DamageSystem: DamageSystem
@@ -655,11 +671,13 @@ class CfgVehicles
 		// axle Differential ratio overridden here, though script config reads saw it.)
 		class SimulationModule: SimulationModule
 		{
+			// Three gears; the speed in each is scripted (BM_Excavator.EXC_SPEEDS: 5.5, 9,
+			// 12 km/h), the ratios only set the engine's revs
 			class Gearbox
 			{
-				type = "GEARBOX_AUTOMATIC";
+				type = "GEARBOX_MANUAL";
 				reverse = 4.4;
-				ratios[] = {3.4};
+				ratios[] = {3.4, 2.2, 1.6};
 			};
 			class Axles: Axles
 			{
@@ -730,6 +748,21 @@ class CfgVehicles
 			class dipperRod: dipper {};
 			class bucketCyl: bucket {};
 			class bucketRod: bucket {};
+			// The treads (model.cfg Tread*): set on each client from the ground speed
+			// (BM_Machine.TreadFrame), one source per animation
+			class treadTop1
+			{
+				source = "user";
+				initPhase = 0;
+				animPeriod = 0.01;
+			};
+			class treadBottom1: treadTop1 {};
+			class treadFront1: treadTop1 {};
+			class treadRear1: treadTop1 {};
+			class treadTop2: treadTop1 {};
+			class treadBottom2: treadTop1 {};
+			class treadFront2: treadTop1 {};
+			class treadRear2: treadTop1 {};
 		};
 
 		class DamageSystem: DamageSystem

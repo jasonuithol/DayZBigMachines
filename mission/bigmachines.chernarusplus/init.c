@@ -33,6 +33,8 @@ class CustomMission: MissionServer
 	static const vector DOZER_POS = "5060 0 2390";
 	static const vector EXCAVATOR_POS = "5048 0 2408";
 	static const float HEADING = 70;	//!< degrees, roughly along the runway
+	static const vector PLAYER_SPAWN = "8650 0 13280";	//!< new characters: the quarry floor by Severograd
+	static const float PLAYER_HEADING = 300;
 
 	protected BM_Bulldozer m_Dozer;
 	protected BM_Excavator m_Excavator;
@@ -142,13 +144,13 @@ class CustomMission: MissionServer
 	//! New characters start between the two machines, on the drivers' (left) side, facing them
 	override PlayerBase CreateCharacter(PlayerIdentity identity, vector pos, ParamsReadContext ctx, string characterName)
 	{
-		vector side = Vector(Math.Sin((HEADING - 90) * Math.DEG2RAD), 0, Math.Cos((HEADING - 90) * Math.DEG2RAD));
-		pos = (DOZER_POS + EXCAVATOR_POS) * 0.5 + side * 6;
+		// in the Krasnaya Zarya quarry by Severograd (4 bulldozer and 3 digger wrecks)
+		pos = PLAYER_SPAWN;
 		pos[1] = GetGame().SurfaceY(pos[0], pos[2]);
 		Entity playerEnt = GetGame().CreatePlayer(identity, characterName, pos, 0, "NONE");
 		Class.CastTo(m_player, playerEnt);	// EquipCharacter dresses m_player
 		GetGame().SelectPlayer(identity, m_player);
-		m_player.SetOrientation(Vector(HEADING + 90, 0, 0));
+		m_player.SetOrientation(Vector(PLAYER_HEADING, 0, 0));
 		return m_player;
 	}
 
@@ -278,6 +280,21 @@ class CustomMission: MissionServer
 			}
 			Check(ok, m.GetType() + ": " + src + " animations at the joint's phase " + phase + " (" + got + ")");
 		}
+		if (m.GetTreadPitch() <= 0)
+			return;
+		// The tread sources (clients set them every frame): each its own, none mixed up
+		array<string> treads = {"treadTop1", "treadBottom1", "treadFront1", "treadRear1", "treadTop2", "treadBottom2", "treadFront2", "treadRear2"};
+		for (int t = 0; t < treads.Count(); t++)
+			m.SetAnimationPhaseNow(treads[t], 0.1 * (t + 1));
+		bool treadsOk = true;
+		string treadsGot = "";
+		for (t = 0; t < treads.Count(); t++)
+		{
+			treadsOk = treadsOk && Math.AbsFloat(m.GetAnimationPhase(treads[t]) - 0.1 * (t + 1)) < 0.01;
+			treadsGot += " " + m.GetAnimationPhase(treads[t]);
+			m.SetAnimationPhaseNow(treads[t], 0);
+		}
+		Check(treadsOk, m.GetType() + ": tread sources each their own (" + treadsGot + ")");
 	}
 
 	void ExcavatorControl(int control, int dir)

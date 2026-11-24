@@ -2,8 +2,8 @@ Working construction machines for DayZ. Some of the wrecked bulldozers and digge
 
 [h2]The machines[/h2]
 [list]
-[*] [b]Bulldozer[/b] (FAT D14): a crawler dozer. Drive it, raise and lower the blade, push things (cars too) out of the way.
-[*] [b]Excavator[/b] (FAT 218): a crawler backhoe. Drives along its tracks whichever way the cab faces; slew the upper house round, work the boom, stick and bucket.
+[*] [b]Bulldozer[/b] (FAT D14): a crawler dozer with three gears (4, 7 and 10.6 km/h). Raise and lower the blade, push things (cars too) out of the way.
+[*] [b]Excavator[/b] (FAT 218): a crawler backhoe with three gears (5.5, 9 and 12 km/h). Drives along its tracks whichever way the cab faces; slew the upper house round, work the boom, stick and bucket.
 [*] [b]Tower crane[/b] (FAT TC30): climb the ladder up the 30 m mast, step onto the walkway and get in at the short ladder under the cab. Slew the jib, run the trolley out and in, lower the hook onto an item or a crate, latch it, lift it, swing it round and set it down somewhere else.
 [/list]
 All three wear FAT livery, the construction brand on DayZ's own wrecks, with worn paint, chips and rust.
@@ -16,7 +16,7 @@ Rebindable under "Big Machines" in the game's key settings.
 [*] Home / End: excavator stick out and in; crane trolley out and in
 [*] Insert / Delete: curl and dump the excavator's bucket; latch and let go of the crane's load
 [/list]
-The bulldozer and excavator drive like any vehicle and need fuel and a truck battery. The arm, blade and crane work with the engine off.
+The bulldozer and excavator have manual gearboxes (shift as in any manual vehicle) and need fuel and a truck battery. Like real tracked machines they keep their speed up slopes, turn on the spot and ride over small boulders, with the treads running along the ground. The arm, blade and crane work with the engine off.
 
 [h2]Where to find them[/h2]
 At every server start, a share of the map's bulldozer and digger wrecks and tower cranes (25% of each by default) are working machines instead, the wreck hidden where it stood. Ones that get destroyed are cleared away at the next restart and new ones turn up in place of other wrecks. Found machines have a little fuel and no battery. Known wreck positions are built in for Chernarus, Livonia, Sakhal and Nasdara (Livonia has no tower cranes).
@@ -39,5 +39,4 @@ No loot table changes are needed.
 [list]
 [*] Engine sounds are borrowed from the truck; the crane is silent
 [*] The crane lifts items and crates, not vehicles; a load still hanging at a restart is left where it hung
-[*] The tracks don't animate yet
 [/list]

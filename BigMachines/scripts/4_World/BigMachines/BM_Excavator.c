@@ -7,6 +7,7 @@ class BM_Excavator extends BM_SlewingMachine
 {
 	static const string SLEW_SOURCE = "slew";	//!< undercarriage animation: phase 0.5 = no slew
 	static ref array<string> ROLLER_SLOTS = {"BM_Exc_Roller_1_1", "BM_Exc_Roller_1_2", "BM_Exc_Roller_2_1", "BM_Exc_Roller_2_2"};
+	static ref array<float> EXC_SPEEDS = {1.53, 2.5, 3.33};	//!< m/s flat out: 5.5, 9 and 12 km/h
 
 	void BM_Excavator()
 	{
@@ -41,6 +42,28 @@ class BM_Excavator extends BM_SlewingMachine
 		case BM_Control.BUCKET:	return 2;
 		}
 		return -1;
+	}
+
+	//! The track ends (build_excavator.py TRACKS: their ramped ends reach 2.1 m)
+	//! blender/build_*.py prints it (the treads' pitch)
+	override float GetTreadPitch()
+	{
+		return 0.1769;
+	}
+
+	override float GetTrackReach(bool forwards)
+	{
+		return 2.15;
+	}
+
+	override array<float> GetTrackSpeeds()
+	{
+		return EXC_SPEEDS;
+	}
+
+	override float GetTrackReverseSpeed()
+	{
+		return 1.2;
 	}
 
 	override string GetSlewSource()

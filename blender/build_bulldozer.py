@@ -215,8 +215,12 @@ def collision_parts(kind):
         for side in (-1, 1):
             x0, x1 = sorted((side * ARM_X[0], side * ARM_X[1]))
             b.box_between((x0, -0.05, 0.4), (x1, 2.3, 0.6), 0, comp("m_arms", "blade", *zone("dmgZone_blade")))
-        b.box_between((-BLADE_HALF_W, 2.25, 0.10), (BLADE_HALF_W, 2.64, 1.26), 0,
-                      comp("m_blade", "blade", *zone("dmgZone_blade")))
+        # The blade's collision stands off the ground and slopes up underneath to the front edge
+        # (0.3 m at the back, 0.6 m in front): going up a slope its edge digs into the ground,
+        # and a boulder ahead slides under it and lifts the front, instead of stopping the
+        # machine dead against a wall
+        b.prism_x([(2.25, 0.30), (2.64, 0.60), (2.64, 1.26), (2.25, 1.26)], -BLADE_HALF_W, BLADE_HALF_W, 0,
+                  comp("m_blade", "blade", *zone("dmgZone_blade")))
         if kind == "geometry":
             TRACKS.hubs(b, comp)
         if dmg:

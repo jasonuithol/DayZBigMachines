@@ -2,12 +2,31 @@
 //! (the vanilla car simulation; the rollers sit at a crawler's idlers and sprockets), runs on
 //! a truck battery and fuel, and has up to four hydraulic joints the driver works.
 //!
+//! Driving is scripted (TrackDrive), as tracks: the physics wheels have next to no grip and
+//! only hold the machine up. Each physics step sets the ground speed along the tracks from the
+//! driver's throttle, brake and gear (GetTrackSpeeds), whatever the slope, stops any sideways
+//! slide, and turns the machine on the spot when steering. Parked, it holds still.
+//!
 //! A joint is a "user" animation source. The server steps its phase on a timer and applies it
 //! at once (SetAnimationPhaseNow, so the collision moves too) and syncs it; clients animate
 //! towards the synced phase (config animPeriod = 1 / speed, the same rate). Phases are saved.
 class BM_Machine extends CarScript
 {
 	static const int MAX_JOINTS = 4;
+	static ref array<float> TRACK_SPEEDS = {1.5};		//!< m/s flat out per forward gear (GetTrackSpeeds)
+	static const float TRACK_ACCEL = 1.5;			//!< m/s^2 speeding up
+	static const float TRACK_COAST = 2.0;			//!< m/s^2 slowing down off the throttle
+	static const float TRACK_BRAKE = 4.0;			//!< m/s^2 slowing down on full brake
+	static const float TRACK_TURN_RATE = 20;		//!< degrees a second, steering full lock
+	static const float TRACK_TRACTION = 8.0;		//!< m/s^2 the tracks can change its speed by (0.8 g)
+	static const float CLIMB_PROBE = 1.0;			//!< m up: an obstacle ahead lower than this is climbed
+	static const float CLIMB_SPEED = 1.0;			//!< m/s up while climbing onto one
+	static const float CLIMB_AFTER = 0.15;			//!< s pushing without getting anywhere first
+	static const float CLIMB_HOLD = 0.5;			//!< s it goes on climbing once it has started
+	static const float CLIMB_MAX = 0.8;				//!< m it may be lifted onto one obstacle
+	static const float CLIMB_TILT = 0.866;			//!< no lifting tilted more than 30 deg (its up . world up)
+	static const float FALLING = 2.0;				//!< m/s down, no roller on the ground: falling, not driving
+	static const float CONTACT_DMG_MASS = 1000;		//!< knocks hurt like a car of this weight's (CarScript)
 	static const int STORE_VERSION = 2;		//!< 2: the wreck it replaced (BM_Wrecks)
 	static const int LIFETIME = 3888000;		//!< seconds unused before the CE removes it (45 days, as vanilla cars)
 
@@ -23,6 +42,15 @@ class BM_Machine extends CarScript
 	protected float m_J0, m_J1, m_J2, m_J3;
 	protected int m_D0, m_D1, m_D2, m_D3;
 	protected int m_JointLastTick;
+
+	// Clients: the treads (TreadFrame), per side (0 = wheel_1_*, 1 = wheel_2_*)
+	static const float TREAD_SHOW_DIST = 250;	//!< m from the camera: no tread animation further off
+	static ref array<string> TREAD_SOURCES_1 = {"treadTop1", "treadBottom1", "treadFront1", "treadRear1"};
+	static ref array<string> TREAD_SOURCES_2 = {"treadTop2", "treadBottom2", "treadFront2", "treadRear2"};
+	protected float m_TreadPhase[2];
+	protected float m_TreadShown[2];
+	protected vector m_TreadLast[2];
+	protected bool m_TreadReady;
 
 	// The map wreck this machine took the place of (BM_Wrecks): its class or model, where it
 	// was, where the machine was put down and facing which way. None for one spawned otherwise.
@@ -51,6 +79,9 @@ class BM_Machine extends CarScript
 		RegisterNetSyncVariableInt("m_D1", -1, 1);
 		RegisterNetSyncVariableInt("m_D2", -1, 1);
 		RegisterNetSyncVariableInt("m_D3", -1, 1);
+		SetEventMask(EntityEvent.SIMULATE);
+		if (!GetGame().IsDedicatedServer())
+			SetEventMask(EntityEvent.FRAME);		// the treads (TreadFrame)
 	}
 
 	//! Subclass constructors: declare joints in order (0, 1, ...). initPhase must match the
@@ -282,6 +313,345 @@ class BM_Machine extends CarScript
 	{
 		Human driver = CrewMember(0);
 		return driver && sender && driver.GetIdentity() && driver.GetIdentity().GetId() == sender.GetId();
+	}
+
+	// --- driving ---
+
+	//! m/s flat out in each forward gear (config Gearbox: manual, as many ratios)
+	array<float> GetTrackSpeeds()
+	{
+		return TRACK_SPEEDS;
+	}
+
+	//! m/s flat out in reverse
+	float GetTrackReverseSpeed()
+	{
+		return 1.2;
+	}
+
+	//! 1 in a forward gear, -1 in reverse, 0 in neutral or park
+	protected int DriveDirection()
+	{
+		if (GearboxGetType() == CarGearboxType.AUTOMATIC)
+		{
+			CarAutomaticGearboxMode mode = GearboxGetMode();
+			if (mode == CarAutomaticGearboxMode.D)
+				return 1;
+			if (mode == CarAutomaticGearboxMode.R)
+				return -1;
+			return 0;
+		}
+		int gear = GetGear();
+		if (gear == CarGear.REVERSE)
+			return -1;
+		if (gear == CarGear.NEUTRAL)
+			return 0;
+		return 1;
+	}
+
+	//! m/s flat out in the gear it's in (forwards; 0 in neutral)
+	float GetGearSpeed()
+	{
+		int dir = DriveDirection();
+		if (dir < 0)
+			return GetTrackReverseSpeed();
+		if (dir == 0)
+			return 0;
+		array<float> speeds = GetTrackSpeeds();
+		int index = 0;
+		if (GearboxGetType() == CarGearboxType.MANUAL)
+			index = Math.Clamp(GetGear() - CarGear.FIRST, 0, speeds.Count() - 1);
+		return speeds[index];
+	}
+
+	//! Whether the driver drives it about (not the tower crane, which only slews)
+	bool CanDrive()
+	{
+		return true;
+	}
+
+	//! The direction the tracks point, in world space
+	vector GetTrackDirection()
+	{
+		return VectorToParent("0 0 1");
+	}
+
+	// --- treads ---
+
+	//! Metres of track each tread animation cycle moves (blender/crawler.py prints it per
+	//! machine); 0 for none (the tower crane)
+	float GetTreadPitch()
+	{
+		return 0;
+	}
+
+	//! A track's middle in model space (side 0: wheel_1_*, 1: wheel_2_*), where the treads
+	//! are now (an excavator's tracks turn back by its slew)
+	vector GetTrackCentreLS(int side)
+	{
+		string s = (side + 1).ToString();
+		return (GetMemoryPointPos("wheel_" + s + "_1") + GetMemoryPointPos("wheel_" + s + "_2")) * 0.5;
+	}
+
+	override void EOnFrame(IEntity other, float timeSlice)
+	{
+		super.EOnFrame(other, timeSlice);
+		TreadFrame();
+	}
+
+	//! Clients, every frame: run each track's treads by how far that side of the machine moved
+	//! along the tracks since the last frame, so they keep pace with the ground (and run
+	//! opposite ways turning on the spot). The animations loop: phase 1 looks like phase 0.
+	protected void TreadFrame()
+	{
+		float pitch = GetTreadPitch();
+		if (pitch <= 0)
+			return;
+		vector dir = GetTrackDirection();
+		bool show = vector.DistanceSq(GetGame().GetCurrentCameraPosition(), GetPosition()) < TREAD_SHOW_DIST * TREAD_SHOW_DIST;
+		for (int side = 0; side < 2; side++)
+		{
+			vector pos = ModelToWorld(GetTrackCentreLS(side));
+			if (m_TreadReady)
+			{
+				float moved = vector.Dot(pos - m_TreadLast[side], dir);
+				if (Math.AbsFloat(moved) < 2)		// not a teleport
+				{
+					float phase = m_TreadPhase[side] + moved / pitch;
+					m_TreadPhase[side] = phase - Math.Floor(phase);
+				}
+			}
+			m_TreadLast[side] = pos;
+			if (show && Math.AbsFloat(m_TreadPhase[side] - m_TreadShown[side]) > 0.002)
+				ShowTread(side, m_TreadPhase[side]);
+		}
+		m_TreadReady = true;
+	}
+
+	float GetTreadPhase(int side)
+	{
+		return m_TreadPhase[side];
+	}
+
+	//! Tests: hold a side's treads at this phase until the machine moves
+	void ShowTreadAt(int side, float phase)
+	{
+		m_TreadPhase[side] = phase;
+		ShowTread(side, phase);
+	}
+
+	protected void ShowTread(int side, float phase)
+	{
+		m_TreadShown[side] = phase;
+		array<string> sources = TREAD_SOURCES_1;
+		if (side == 1)
+			sources = TREAD_SOURCES_2;
+		for (int i = 0; i < sources.Count(); i++)
+			SetAnimationPhaseNow(sources[i], phase);
+	}
+
+	//! While true, steering doesn't turn it (an excavator slewing turns the machine itself)
+	protected bool TrackTurnHeld()
+	{
+		return false;
+	}
+
+	//! m from the origin to the front (or back) of what leads it along the tracks: the
+	//! climbing probe starts there (TrackDrive)
+	float GetTrackReach(bool forwards)
+	{
+		return 2.0;
+	}
+
+	//! Whether what the tracks are pushing against is low enough to climb: nothing in the way
+	//! CLIMB_PROBE up, just ahead. A wall, a building or a car is pushed, not climbed
+	protected bool CanClimbAhead(vector dir, bool forwards)
+	{
+		vector up = VectorToParent("0 1 0");
+		float reach = GetTrackReach(forwards);
+		vector from = GetPosition() + dir * (reach - 0.3) + up * CLIMB_PROBE;
+		vector to = from + dir * 1.5;
+		vector hit, normal;
+		int comp;
+		set<Object> results = new set<Object>();
+		return !DayZPhysics.RaycastRV(from, to, hit, normal, comp, results, null, this, false, false, ObjIntersectGeom);
+	}
+
+	//! A machine that can't drive, each step (the tower crane levels itself)
+	protected void HoldStill(vector up, vector spin)
+	{
+	}
+
+	static float MoveTowards(float from, float to, float step)
+	{
+		if (from < to)
+			return Math.Min(from + step, to);
+		return Math.Max(from - step, to);
+	}
+
+	//! Each physics step, wherever the machine is simulated (the server, and the driver's client
+	//! predicting it)
+	override void EOnSimulate(IEntity other, float dt)
+	{
+		super.EOnSimulate(other, dt);
+		if (!IsProxy() && dt > 0)
+			TrackDrive(dt);
+	}
+
+	protected void TrackDrive(float dt)
+	{
+		// Only a fall is left to the physics. Up on a rock with the rollers off the ground, the
+		// tracks still bear on it and drive on (the rollers' contact alone would leave it stuck)
+		bool contact = false;
+		for (int w = 0; w < WheelCount(); w++)
+		{
+			if (WheelHasContact(w))
+				contact = true;
+		}
+		vector vel = GetVelocity(this);
+		vector track = GetTrackDirection();
+		// Speed along the tracks, less what gravity added last step: the drive holds its speed
+		// on a slope, and holds it still there
+		float speed = vector.Dot(vel, track) + 9.81 * track[1] * dt;
+		if (!contact && vel[1] < -FALLING)
+		{
+			m_Belt = speed;
+			return;
+		}
+
+		bool crewed = CrewMember(0) != null && CanDrive();
+		float throttle = 0;
+		float brake = 1;	// nobody aboard (or nothing to drive): hold it where it is
+		float steer = 0;
+		int dir = 0;
+		float flatOut = 0;
+		// The controls as they stand now: on the server, OnInput sees the driver's from the
+		// step before they arrive
+		if (crewed)
+		{
+			brake = Math.Max(GetBrake(), GetHandbrake());
+			steer = GetSteering();
+			if (EngineIsOn())
+			{
+				throttle = GetThrottle();
+				dir = DriveDirection();
+				flatOut = GetGearSpeed();
+			}
+		}
+
+		vector up = VectorToParent("0 1 0");
+		float target = throttle * flatOut * dir;
+		float rate = TRACK_COAST;
+		if (brake > 0.05)
+		{
+			target = 0;
+			rate = TRACK_BRAKE * brake;
+		}
+		else if (target * m_Belt >= 0 && Math.AbsFloat(target) > Math.AbsFloat(m_Belt))
+		{
+			rate = TRACK_ACCEL;
+		}
+		// The tracks turn at their own speed, whatever the machine is doing; the machine is
+		// pulled towards it with the tracks' grip. Against a rock it shoves hard (and the rock
+		// meets the ramped track ends, which lift it over) instead of asking a little more
+		// speed of a machine that isn't moving
+		m_Belt = MoveTowards(m_Belt, target, rate * dt);
+		float moving = speed;
+		speed = MoveTowards(speed, m_Belt, TRACK_TRACTION * dt);
+		// along the tracks, plus whatever the suspension is doing; nothing sideways
+		float rise = vector.Dot(vel, up);
+		// Pushing and getting nowhere: tracks ride up onto a rock, a log, a kerb, if it's low
+		if (Math.AbsFloat(m_Belt) > 0.3 && Math.AbsFloat(moving) < 0.3 * Math.AbsFloat(m_Belt))
+			m_Blocked += dt;
+		else
+			m_Blocked = 0;
+		// Once started it goes on a moment, or it would stop as soon as it moved and stall again.
+		// Never more than CLIMB_MAX onto one thing, nor tilted steeply: a rock, not a cliff
+		bool lifting = false;
+		if ((m_Blocked > CLIMB_AFTER || m_Climbing > 0) && m_Climbed < CLIMB_MAX && up[1] > CLIMB_TILT)
+		{
+			bool forwards = m_Belt > 0;
+			vector ahead = track;
+			if (!forwards)
+				ahead = -track;
+			if (Math.AbsFloat(m_Belt) > 0.3 && CanClimbAhead(ahead, forwards))
+			{
+				if (m_Blocked > CLIMB_AFTER)
+					m_Climbing = CLIMB_HOLD;
+				if (rise < CLIMB_SPEED)
+				{
+					m_Climbed += (CLIMB_SPEED - Math.Max(rise, 0)) * dt;
+					rise = CLIMB_SPEED;
+				}
+				lifting = true;
+			}
+		}
+		if (lifting)
+		{
+			m_Climbing -= dt;
+			m_ClimbRest = 0;
+		}
+		else
+		{
+			m_Climbing = 0;
+			m_ClimbRest += dt;
+			if (m_ClimbRest > 1.0)
+				m_Climbed = 0;
+		}
+		vector newVel = track * speed + up * rise;
+		if (vector.DistanceSq(newVel, vel) > 0.000001)
+			SetVelocity(this, newVel);
+
+		vector spin = dBodyGetAngularVelocity(this);
+		if (!CanDrive())
+		{
+			HoldStill(up, spin);
+			return;
+		}
+
+		// Turning on the spot, the way tracks do; steers like a car's wheels (backing up, right
+		// swings the front left)
+		if (TrackTurnHeld())
+			return;
+		float yaw = steer * TRACK_TURN_RATE * Math.DEG2RAD;
+		if (speed < -0.05 || target < 0)
+			yaw = -yaw;
+		float spinUp = vector.Dot(spin, up);
+		if (Math.AbsFloat(spinUp - yaw) > 0.0001)
+			dBodySetAngularVelocity(this, spin + up * (yaw - spinUp));
+	}
+
+	// --- knocks ---
+
+	protected float m_Belt;		//!< the tracks' own speed, m/s along them (TrackDrive)
+	protected float m_Blocked;	//!< s the tracks have been pushing without the machine moving
+	protected float m_Climbing;	//!< s left climbing onto an obstacle
+	protected float m_Climbed;	//!< m lifted onto the obstacle in hand (CLIMB_MAX)
+	protected float m_ClimbRest;	//!< s since it last climbed: a new obstacle after a while
+	protected float m_ContactCoefBase = -1;		//!< vanilla's m_dmgContactCoef, before scaling
+
+	//! Vanilla's crash damage goes by momentum: a 14 t machine nudging a rock at walking pace
+	//! counted as a hard crash, damaging it and knocking its driver out (shock 50 a knock).
+	//! Scaled to the mass, knocks hurt as they would a car of CONTACT_DMG_MASS at the same
+	//! change of speed: real crashes and falls, not rocks.
+	override void CheckContactCache()
+	{
+		float mass = dBodyGetMass(this);
+		if (m_ContactCoefBase < 0)
+			m_ContactCoefBase = m_dmgContactCoef;
+		if (mass > CONTACT_DMG_MASS)
+			m_dmgContactCoef = m_ContactCoefBase * CONTACT_DMG_MASS / mass;
+		super.CheckContactCache();
+	}
+
+	//! Vanilla already scales crew damage to a 1000 kg car's (change of speed), and the scaling
+	//! above would make it tiny again: undo that here, so the crew get what a car's would
+	override void DamageCrew(float dmg)
+	{
+		float mass = dBodyGetMass(this);
+		if (mass > CONTACT_DMG_MASS)
+			dmg = dmg * mass / CONTACT_DMG_MASS;
+		super.DamageCrew(dmg);
 	}
 
 	// --- home: the wreck it replaced ---

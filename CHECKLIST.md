@@ -66,12 +66,24 @@ To do for the bulldozer:
   guard and rain cap, roof lights, beacon, grab handle (2026-11-24, checked in game)
 - [x] Sprockets/idlers no longer stick out of the tracks or jump about: the game moves the
   wheel bones with the suspension, so the rollers are invisible and the sprockets are fixed to
-  the track frame (blender/crawler.py); they don't turn yet
+  the track frame (blender/crawler.py); they turn with the treads now (below)
 - [x] Weathered textures (tools/make_weathering.py: worn paint, chips, rust streaks, grime, muddy
   tracks; box-projected 2 m tiles), worn decals (2026-11-24, checked in game)
-- [ ] A View Pilot LOD for the cab; track links
-- [ ] Track animation (texture scroll or moving links) and turning sprockets
-- [ ] Turn on the spot (skid steer) instead of car-style steering
+- [ ] A View Pilot LOD for the cab
+- [x] Treads (playtest: "tracks should move with the vehicle, and have treads"): separate shoes
+  with grouser bars (blender/crawler.py Tracks.treads), pitch chosen so whole shoes fill each
+  run and each end; four bones a side (top, bottom, front, rear; sprocket and idler turn with
+  the ends) that model.cfg moves one shoe on per cycle, looping seamlessly. Each client runs
+  them from how far each side moved along the tracks (BM_Machine.TreadFrame), so they keep pace
+  with the ground and run opposite ways turning on the spot. Autobot: phases 0 / 0.5 / 0.9 line
+  up at the ends; forward 0.5 cycles/s at 0.3 km/h on both sides, opposite when turning; test.sh
+  checks the 8 tread sources don't scramble the others. Bulldozer and excavator
+- [x] Turn on the spot (skid steer) instead of car-style steering
+- [x] Climbing (playtest: crawled up the slightest slope): it drove on the car simulation's four
+  wheels, and the lowered blade caught rising ground. Now the excavator's scripted track drive
+  (moved into BM_Machine) with low-grip rollers, a manual gearbox with 3 gears (4 / 7 / 10.6
+  km/h, BM_Bulldozer.DOZER_SPEEDS), and the blade's collision 0.2 m above its edge. Autobot on
+  a 10-11 deg slope: 3.1 km/h in 1st, 9.7 in 3rd, 6.5 in 2nd with the blade fully down
 - [x] Keep the blade position across restarts (every joint is saved; checked on the excavator)
 - [x] Replace a share of the map's Wreck_Bulldozer objects with working machines (see "On the map")
 - [ ] Silence the engine warning "Second driver found when parsing class Crew::Crew" (harmless)
@@ -116,7 +128,18 @@ To do for the excavator:
   Autobot: slewed 94 deg, drove 6.6 m at 69.7 deg with the tracks at 70.1; reverse, steering,
   pivot turns; server and client agree)
 - [ ] Engine sound: the wheels spin freely, so it revs to ~2300 rpm on throttle whatever the
-  ground speed
+  ground speed (the bulldozer too, now)
+- [x] Boulders and knock-outs (playtest: stuck on smallish boulders, driver knocked out):
+  vanilla crash damage goes by momentum, so a 14 t machine nudging a rock counted as a crash
+  (shock 50 a knock); now scaled to the mass (BM_Machine.CheckContactCache / DamageCrew: hurts
+  like a car at the same change of speed). Tracks: collision ends ramped (34 deg to 0.8 m),
+  the blade's underside sloped, the drive pushes with 0.8 g of traction from the tracks' own
+  speed, and when pushing without moving it climbs anything lower than 1 m ahead (at most
+  0.8 m, not tilted past 30 deg). Autobot: over a 0.55 m boulder at 2-3 km/h without stopping,
+  stops at a rock outcrop instead of climbing it (it flipped before the limits), shock 100
+- [x] A higher gear (playtest): manual gearbox, 5.5 km/h in 1st, 9 in 2nd (EXC_SPEEDS); Autobot
+  8.3 km/h in 2nd at the game's 0.9 throttle
+- [x] Another gear (playtest): 3rd, 12 km/h; Autobot 11.9 km/h flat out at 2350 rpm (redline 2400)
 - [x] Replace a share of the map's Wreck_Digger objects with working machines (see "On the map")
 
 ### Tower crane status (2026-11-24)

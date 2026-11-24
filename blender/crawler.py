@@ -34,10 +34,19 @@ BATTERY_PROXY = "dz\\vehicles\\parts\\battery_truck.p3d"
 # The game moves the wheel bones (wheel_<side>_<axle>) with the suspension itself, whatever
 # model.cfg says: wheel items were drawn 15-28 cm above their hubs and anything in those bones
 # jumps about, even parked with the engine off. So the rollers' own model is invisible and the
-# sprockets and idlers are fixed parts of the track frame (they don't turn; nor does the belt).
-# Their teeth stop this far inside the belt. (Bones of their own, gear_<side>_<axle>, silently
-# stopped every animation in the model.)
+# sprockets and idlers are drawn by the machine, in the tread bones (they turn with the treads).
+# Their teeth stop this far inside the belt. (Gear bones animated off the wheel sources once
+# silently stopped every animation in the model: never let two animations share a source.)
 GEAR_CLEARANCE = 0.02
+
+# Track shoes (Tracks.treads): about this pitch (m), within these limits, a gap between shoes,
+# the plate's thickness and the grouser bar's height and length along the track. The plate
+# is on the belt's inside; the grouser stands 5 mm proud of it (into the ground).
+TREAD_PITCH, TREAD_PITCH_MIN, TREAD_PITCH_MAX = 0.19, 0.16, 0.23
+TREAD_GAP = 0.012
+TREAD_PLATE = 0.04
+TREAD_GROUSER = 0.035
+TREAD_GROUSER_LEN = 0.045
 
 # Livery decals (tools/make_textures.py draws them; tools/img2paa.sh makes the .paa)
 DECALS = ("bm_fat_logo_ca", "bm_fat_stripe_ca", "bm_fat_letters_ca", "bm_hazard_ca")
@@ -80,14 +89,70 @@ class Tracks:
             for axle_i, y in ((1, self.wheelbase / 2), (2, -self.wheelbase / 2)):
                 yield f"wheel_{side_i}_{axle_i}", x, y
 
-    def visual(self, b, track_mat, frame_mat, bottom_rollers=4, groups=()):
-        """Belts, track frames, bottom rollers and a carrier roller on each side; `groups`:
-        selections (bones) they belong to"""
+    def tread_layout(self):
+        """How the shoes go round: (n, straight pitch, m, curve pitch, curve step in radians).
+        n shoes on each straight run and m round each end, pitches as near equal as the track
+        allows (each shoe moves one pitch per animation cycle, model.cfg Tread*)."""
+        rc = self.radius + self.thickness / 2       # the shoes' pitch line round the ends
+        best = None
+        for n in range(4, 40):
+            for m in range(3, 20):
+                ps, pc = self.wheelbase / n, math.pi * rc / m
+                if not TREAD_PITCH_MIN <= ps <= TREAD_PITCH_MAX:
+                    continue
+                score = abs(ps - pc) / pc + abs(ps - TREAD_PITCH) / TREAD_PITCH * 0.05
+                if best is None or score < best[0]:
+                    best = (score, n, ps, m, pc)
+        _, n, ps, m, pc = best
+        return n, ps, m, pc, math.pi / m
+
+    def tread_pitch(self):
+        """Metres of track per animation cycle (the script's GetTreadPitch)"""
+        n, ps, m, pc, step = self.tread_layout()
+        return (ps + pc) / 2
+
+    def shoe(self, b, cx, centre, normal_angle, pitch, mat, groups):
+        """One track shoe: a plate on the track's inside and a grouser bar across it, standing
+        out of the belt. centre: (y, z) on the pitch line; normal_angle: its outward normal's
+        angle from +Y towards +Z"""
+        rot = Matrix.Rotation(normal_angle - math.pi / 2, 4, "X")     # box Z -> the normal
+        ny, nz = math.cos(normal_angle), math.sin(normal_angle)
+        inner = -self.thickness / 2                                   # from the pitch line
+        for along, h0, h1, w in ((pitch - TREAD_GAP, inner, inner + TREAD_PLATE, self.width),
+                                 (TREAD_GROUSER_LEN, inner + TREAD_PLATE, inner + TREAD_PLATE + TREAD_GROUSER,
+                                  self.width * 0.96)):
+            mid = (h0 + h1) / 2
+            b.box((w, along, h1 - h0), (cx, centre[0] + ny * mid, centre[1] + nz * mid), mat, groups, rot=rot)
+
+    def treads(self, b, side_i, cx, mat, frame_mat, groups=()):
+        """Side side_i's shoes, in four bones that model.cfg moves one pitch each cycle the way
+        the track runs driving forwards: top run forwards (+Y), bottom run back, the shoes
+        round each end (and the sprocket and idler with them) turning about its axle. A shoe
+        hands over to the next part where a run meets an end, so cycle's end = its start."""
+        n, ps, m, pc, step = self.tread_layout()
+        half, z = self.wheelbase / 2, self.wheel_z
+        rc = self.radius + self.thickness / 2
+        bone = lambda part: (*groups, f"tread_{side_i}_{part}")
+        for i in range(n):
+            self.shoe(b, cx, (-half + ps * i, z + rc), math.pi / 2, ps, mat, bone("top"))
+            self.shoe(b, cx, (half - ps * i, z - rc), -math.pi / 2, ps, mat, bone("bottom"))
+        for k in range(m):
+            a = math.pi / 2 - k * step                  # front: from the top over and down
+            self.shoe(b, cx, (half + rc * math.cos(a), z + rc * math.sin(a)), a, pc, mat, bone("front"))
+            a = -math.pi / 2 - k * step                 # rear: from the bottom round and up
+            self.shoe(b, cx, (-half + rc * math.cos(a), z + rc * math.sin(a)), a, pc, mat, bone("rear"))
+        # the idler and sprocket turn with the shoes round them: 2m teeth, a tooth a cycle
+        self.gear(b, cx, half, frame_mat, bone("front"), teeth=2 * m)
+        self.gear(b, cx, -half, frame_mat, bone("rear"), teeth=2 * m)
+
+    def visual(self, b, track_mat, frame_mat, bottom_rollers=4, groups=(), tread_groups=()):
+        """Treads, track frames, bottom rollers and a carrier roller on each side. `groups`:
+        selections (bones) the fixed parts belong to; the treads and gears go in bones of their
+        own (tread_<side>_<part>, children of the machine's in model.cfg) plus `tread_groups`"""
         half = self.wheelbase / 2
-        for side in (-1, 1):
+        for side_i, side in ((1, -1), (2, 1)):
             cx = side * self.x
-            b.band_x(rv.stadium(self.wheelbase, self.radius, self.wheel_z, segments=12), self.thickness,
-                     cx - self.width / 2, cx + self.width / 2, track_mat, groups)
+            self.treads(b, side_i, cx, track_mat, frame_mat, tread_groups)
             b.box_between((cx - 0.2, -half + 0.1, 0.22), (cx + 0.2, half - 0.1, 2 * self.wheel_z - 0.3), frame_mat,
                           groups)
             for i in range(bottom_rollers):
@@ -96,28 +161,43 @@ class Tracks:
                            rot=X_AXIS_ROT)
             b.cylinder(0.09, self.width * 0.55, (cx, 0, 2 * self.wheel_z - self.thickness - 0.09), frame_mat,
                        groups, segments=10, rot=X_AXIS_ROT)
-        for sel, x, y in self.wheels():
-            # fixed to the track frame, like the belt (see GEAR_CLEARANCE)
-            self.gear(b, x, y, frame_mat, groups)
 
-    def gear(self, b, x, y, mat, groups, width=0.30):
-        """An idler/sprocket at a track end: disc, hub and teeth, turning about its axle"""
+    def gear(self, b, x, y, mat, groups, width=0.30, teeth=8):
+        """An idler/sprocket at a track end: disc, hub and teeth, turning about its axle. Its
+        polygons repeat every tooth, so turning a tooth looks the same (the tread cycle)"""
         r = self.tooth_r - 0.09                 # disc; the teeth stand 9 cm proud of it
         c = (x, y, self.wheel_z)
         b.lathe_x([(-width / 2, 0.10), (-width / 2, r), (width / 2, r), (width / 2, 0.10)], c, mat, groups,
-                  segments=16)
-        b.cylinder(0.12, width + 0.1, c, mat, groups, segments=12, rot=X_AXIS_ROT)
-        for k in range(8):
-            a = 2 * math.pi * k / 8
-            b.box((width * 0.8, 0.12, 0.08), (x, y + (r + 0.03) * math.cos(a), self.wheel_z + (r + 0.03) * math.sin(a)),
+                  segments=teeth)
+        b.cylinder(0.12, width + 0.1, c, mat, groups, segments=teeth, rot=X_AXIS_ROT)
+        tooth = min(0.12, 2 * math.pi * r / teeth * 0.5)
+        for k in range(teeth):
+            a = 2 * math.pi * (k + 0.5) / teeth
+            b.box((width * 0.8, tooth, 0.08), (x, y + (r + 0.03) * math.cos(a), self.wheel_z + (r + 0.03) * math.sin(a)),
                   mat, groups, rot=Matrix.Rotation(a, 4, "X"))
 
+    CLEARANCE = 0.15    # the collision's flat bottom above the ground (the wheels carry the machine)
+    RAMP_TOP = 0.8      # the ramped ends reach this high...
+    RAMP_RUN = 0.9      # ...over this much length: a 34 degree slope
+
+    def collision_profile(self):
+        """The track seen from the side, (y, z), as a convex outline: a flat bottom CLEARANCE off
+        the ground, ends ramped up at RAMP_TOP / RAMP_RUN from just inside the idler and
+        sprocket, and the track's top. A rock meets a ramp and lifts the machine over it, as a
+        real track rides up onto one, instead of a wall (the wheels are only ground probes)"""
+        half, c, top = self.wheelbase / 2, self.CLEARANCE, 2 * self.wheel_z + 0.02
+        y0 = half - 0.3                         # the ramps start just inside the end rollers
+        y1 = y0 + self.RAMP_RUN
+        zr = min(self.RAMP_TOP, top - 0.05)
+        front = [(y0, c), (y1, zr), (half + self.wheel_z * 0.7, top)]
+        rear = [(-y, z) for y, z in reversed(front)]
+        return front + rear
+
     def collision(self, b, comp, names=("m_track_l", "m_track_r"), extra=()):
-        """A box per track, clear of the ground: the wheels carry the machine"""
-        half = self.wheelbase / 2 + self.radius * 0.6
+        """A convex prism per track in the track's outline (collision_profile)"""
         for side, name in zip((-1, 1), names):
             x0, x1 = sorted((side * (self.x - self.width / 2), side * (self.x + self.width / 2)))
-            b.box_between((x0, -half, 0.25), (x1, half, 2 * self.wheel_z + 0.02), 0, comp(name, *extra))
+            b.prism_x(self.collision_profile(), x0, x1, 0, comp(name, *extra))
 
     def hubs(self, b, comp):
         """Geometry LOD: the car simulation finds each wheel hub as a component of this name"""
@@ -129,6 +209,7 @@ class Tracks:
             pts[sel] = (x, y, self.wheel_z)
             pts[sel + "_axis"] = [(x - 0.2, y, self.wheel_z), (x + 0.2, y, self.wheel_z)]
             pts[sel + "_damper_land"] = (x, y, self.wheel_z)
+        pts["tread_axis"] = [(0, 0, self.wheel_z), (0, 1, self.wheel_z)]   # 1 m forwards: model.cfg Tread*
 
     def proxies(self, lod_obj, coll, battery_pos, battery_groups=()):
         """The attachment slots' proxies, each in its slot's selection: rollers and battery"""
@@ -254,6 +335,10 @@ def assemble(name, visual, geometry, fire, view, memory_pts, tracks, crew_pos, b
         for o in c.objects:
             o.display_type = "WIRE"
 
+    n, ps, m, pc, step = tracks.tread_layout()
+    print(f"[{name}] treads: {n} shoes a run at {ps:.4f} m, {m} round each end at {pc:.4f} m; model.cfg "
+          f"TreadTop offset1 {ps:.4f}, TreadFront angle1 rad {-math.degrees(step):.4f}; "
+          f"script GetTreadPitch {tracks.tread_pitch():.4f}")
     tris = sum(len(p.vertices) - 2 for p in visual.data.polygons)
     print(f"[{name}] visual LOD: {len(visual.data.vertices)} verts, {tris} tris")
 
