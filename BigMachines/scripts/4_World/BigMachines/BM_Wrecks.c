@@ -182,7 +182,7 @@ class BM_Wrecks
 		array<int> have = {0, 0, 0};		// per BM_WreckSite kind
 		array<BM_WreckSite> claimed = new array<BM_WreckSite>();
 		array<BM_Machine> machines = new array<BM_Machine>();
-		machines.Copy(BM_Machine.GetAll());
+		machines.Copy(BM_Machine.GetMachines());
 		foreach (BM_Machine m : machines)
 		{
 			if (!m || !m.HasHome())

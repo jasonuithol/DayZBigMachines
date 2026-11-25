@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1 (2026-11-24)
+
+- Works alongside DayZ Expansion: a name clash with Expansion Core stopped servers running
+  both from starting (script compile error).
+
 ## 0.1 (2026-11-24)
 
 First release.

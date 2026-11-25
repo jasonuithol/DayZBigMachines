@@ -656,8 +656,9 @@ class BM_Machine extends CarScript
 
 	// --- home: the wreck it replaced ---
 
-	//! Server: every machine in the world
-	static array<BM_Machine> GetAll()
+	//! Server: every machine in the world (not GetAll: Expansion Core adds a static
+	//! CarScript.GetAll(), and the clash stops the whole World script module compiling)
+	static array<BM_Machine> GetMachines()
 	{
 		return s_All;
 	}
