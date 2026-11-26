@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2 (unreleased)
+## 0.2 (2026-11-26)
 
 - Combine harvester: the map's old green-and-cream combine, restored. Real wheels, steers
   with its back wheels, three gears; raise and lower the header, swing the unloading auger
