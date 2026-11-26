@@ -129,6 +129,35 @@ class CfgSlots
 		selection = "wheel_2_2";
 		ghostIcon = "set:dayz_inventory image:wheel";
 	};
+	// The combine harvester's wheels: big drive wheels at the front, steering wheels at the back
+	class Slot_BM_Combine_Wheel_1_1
+	{
+		name = "BM_Combine_Wheel_1_1";
+		displayName = "Combine wheel, left front";
+		selection = "wheel_1_1";
+		ghostIcon = "set:dayz_inventory image:wheel";
+	};
+	class Slot_BM_Combine_Wheel_2_1
+	{
+		name = "BM_Combine_Wheel_2_1";
+		displayName = "Combine wheel, right front";
+		selection = "wheel_2_1";
+		ghostIcon = "set:dayz_inventory image:wheel";
+	};
+	class Slot_BM_Combine_Wheel_1_2
+	{
+		name = "BM_Combine_Wheel_1_2";
+		displayName = "Combine wheel, left back";
+		selection = "wheel_1_2";
+		ghostIcon = "set:dayz_inventory image:wheel";
+	};
+	class Slot_BM_Combine_Wheel_2_2
+	{
+		name = "BM_Combine_Wheel_2_2";
+		displayName = "Combine wheel, right back";
+		selection = "wheel_2_2";
+		ghostIcon = "set:dayz_inventory image:wheel";
+	};
 };
 
 class CfgNonAIVehicles
@@ -157,6 +186,16 @@ class CfgNonAIVehicles
 	{
 		model = "BigMachines\tower_crane\proxy\bm_crane_roller.p3d";
 		inventorySlot[] = {"BM_Crane_Roller_1_1", "BM_Crane_Roller_1_2", "BM_Crane_Roller_2_1", "BM_Crane_Roller_2_2"};
+	};
+	class Proxybm_combine_wheel_front: ProxyVehiclePart
+	{
+		model = "BigMachines\combine\proxy\bm_combine_wheel_front.p3d";
+		inventorySlot[] = {"BM_Combine_Wheel_1_1", "BM_Combine_Wheel_2_1"};
+	};
+	class Proxybm_combine_wheel_rear: ProxyVehiclePart
+	{
+		model = "BigMachines\combine\proxy\bm_combine_wheel_rear.p3d";
+		inventorySlot[] = {"BM_Combine_Wheel_1_2", "BM_Combine_Wheel_2_2"};
 	};
 };
 
@@ -258,6 +297,60 @@ class CfgVehicles
 		width = 0.12;
 	};
 	class BM_CraneRoller_Ruined: BM_CraneRoller
+	{
+		scope = 1;
+	};
+	//! The combine's wheels: real tyres (grip like the truck's). Fitted for good when the
+	//! machine is created (BM_Combine.c), like the crawlers' rollers
+	class BM_CombineWheelFront: CarWheel
+	{
+		scope = 2;
+		displayName = "Combine drive wheel";
+		descriptionShort = "A big lugged drive wheel from a combine harvester.";
+		model = "BigMachines\combine\proxy\bm_combine_wheel_front.p3d";
+		weight = 120000;
+		itemSize[] = {10, 10};
+		inventorySlot[] = {"BM_Combine_Wheel_1_1", "BM_Combine_Wheel_2_1"};
+		rotationFlags = 12;
+		radiusByDamage[] = {0, 0.78, 0.3, 0.74, 0.9998, 0.7, 0.9999, 0.6};
+		radius = 0.78;
+		width = 0.52;
+		tyreType = 0;
+		tyreOffroadResistance = 0.98;
+		tyreRollResistance = 0.02;
+		tyreGrip = 0.95;
+		tyreRoughness = 1.0;
+		tyreLongitudinalFriction = 1.5;
+		tyreLateralFriction = 1.8;
+		class DamageSystem
+		{
+			class GlobalHealth
+			{
+				class Health
+				{
+					hitpoints = 3000;
+					healthLevels[] = {{1.0, {}}, {0.7, {}}, {0.5, {}}, {0.3, {}}, {0.0, {}}};
+				};
+			};
+		};
+	};
+	class BM_CombineWheelFront_Ruined: BM_CombineWheelFront
+	{
+		scope = 1;
+	};
+	class BM_CombineWheelRear: BM_CombineWheelFront
+	{
+		displayName = "Combine steering wheel";
+		descriptionShort = "A small steering wheel from a combine harvester.";
+		model = "BigMachines\combine\proxy\bm_combine_wheel_rear.p3d";
+		weight = 40000;
+		itemSize[] = {6, 6};
+		inventorySlot[] = {"BM_Combine_Wheel_1_2", "BM_Combine_Wheel_2_2"};
+		radiusByDamage[] = {0, 0.46, 0.3, 0.43, 0.9998, 0.4, 0.9999, 0.34};
+		radius = 0.46;
+		width = 0.3;
+	};
+	class BM_CombineWheelRear_Ruined: BM_CombineWheelRear
 	{
 		scope = 1;
 	};
@@ -916,6 +1009,142 @@ class CfgVehicles
 					{
 						radius = 0.5;
 					};
+				};
+			};
+		};
+	};
+	//! The combine harvester (BM_Combine.c, blender/build_combine.py): drives on its big front
+	//! wheels on the car simulation (no scripted tracks), steering with its back wheels
+	class BM_Combine: BM_Machine
+	{
+		scope = 2;
+		displayName = "Combine harvester";
+		descriptionShort = "An old combine harvester. Keep clear of the header while it runs.";
+		model = "BigMachines\combine\bm_combine.p3d";
+		attachments[] = {"TruckBattery", "BM_Combine_Wheel_1_1", "BM_Combine_Wheel_2_1", "BM_Combine_Wheel_1_2", "BM_Combine_Wheel_2_2"};
+
+		class SimulationModule: SimulationModule
+		{
+			// It steers with its back wheels, which the car simulation can't do (a negative
+			// steering angle crashes the game): the simulation only drives the big front
+			// wheels, its own steering a token 1 degree, and BM_Combine.SteerBack turns the
+			// machine as back-wheel steering would and turns the back wheels for show
+			class Steering
+			{
+				maxSteeringAngle = 1;
+				increaseSpeed[] = {0, 25, 10, 15};
+				decreaseSpeed[] = {0, 45, 10, 25};
+				centeringSpeed[] = {0, 25, 10, 15};
+			};
+			drive = "DRIVE_FWD";
+			// About 6, 12 and 20 km/h at 2200 rpm (0.78 m drive wheels, differential 20)
+			class Gearbox
+			{
+				type = "GEARBOX_MANUAL";
+				reverse = 5.4;
+				ratios[] = {5.4, 2.7, 1.6};
+			};
+			class Axles: Axles
+			{
+				// the big drive wheels
+				class Front: Front
+				{
+					wheelHubRadius = 0.4;
+					class Suspension
+					{
+						stiffness = 550000;
+						compression = 25000;
+						damping = 40000;
+						travelMaxUp = 0.08;
+						travelMaxDown = 0.08;
+					};
+					class Wheels: Wheels
+					{
+						class Left: Left
+						{
+							inventorySlot = "BM_Combine_Wheel_1_1";
+						};
+						class Right: Right
+						{
+							inventorySlot = "BM_Combine_Wheel_2_1";
+						};
+					};
+				};
+				// the steering wheels at the back
+				class Rear: Rear
+				{
+					wheelHubRadius = 0.25;
+					class Suspension
+					{
+						stiffness = 280000;
+						compression = 15000;
+						damping = 25000;
+						travelMaxUp = 0.12;
+						travelMaxDown = 0.12;
+					};
+					class Wheels: Wheels
+					{
+						class Left: Left
+						{
+							inventorySlot = "BM_Combine_Wheel_1_2";
+						};
+						class Right: Right
+						{
+							inventorySlot = "BM_Combine_Wheel_2_2";
+						};
+					};
+				};
+			};
+		};
+
+		// Driven by BM_Combine.c: the header (raised as it comes) and the unloading auger are
+		// joints; the reel and the header's auger spin on each client while the header runs
+		class AnimationSources
+		{
+			class header
+			{
+				source = "user";
+				initPhase = 1;
+				animPeriod = 3.3;
+			};
+			class auger
+			{
+				source = "user";
+				initPhase = 0;
+				animPeriod = 8.3;
+			};
+			class reel
+			{
+				source = "user";
+				initPhase = 0;
+				animPeriod = 0.01;
+			};
+			class headerAuger: reel {};
+			// the back wheels turned for show, -1 .. 1 = the driver's steering (SteerBack)
+			class steerBackLeft: reel {};
+			class steerBackRight: reel {};
+		};
+
+		class DamageSystem: DamageSystem
+		{
+			class DamageZones: DamageZones
+			{
+				class Header
+				{
+					displayName = "Header";
+					fatalInjuryCoef = -1;
+					memoryPoints[] = {"dmgZone_header"};
+					componentNames[] = {"dmgZone_header"};
+					class Health
+					{
+						hitpoints = 8000;
+						transferToGlobalCoef = 0;
+						healthLevels[] = {{1.0, {}}, {0.7, {}}, {0.5, {}}, {0.3, {}}, {0.0, {}}};
+					};
+					transferToZonesNames[] = {};
+					transferToZonesCoefs[] = {};
+					inventorySlots[] = {};
+					inventorySlotsCoefs[] = {};
 				};
 			};
 		};

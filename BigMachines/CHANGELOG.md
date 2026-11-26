@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2 (unreleased)
+
+- Combine harvester: the map's old green-and-cream combine, restored. Real wheels, steers
+  with its back wheels, three gears; raise and lower the header, swing the unloading auger
+  out, start the header running. The running header kills zombies, animals and players it
+  reaches. A share of the combine wrecks on Chernarus, Livonia and Sakhal are working
+  combines (CombinePercent in the settings, 25% by default; existing settings files gain it
+  at the next start); the wreck's loose header beside it goes too.
+
 ## 0.1.1 (2026-11-24)
 
 - Works alongside DayZ Expansion: a name clash with Expansion Core stopped servers running

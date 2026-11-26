@@ -307,7 +307,8 @@ def collision_object(name, parts, masses=None):
 def assemble(name, visual, geometry, fire, view, memory_pts, tracks, crew_pos, battery_pos, model_path,
              crew_groups=("crewDriver",), battery_groups=(), preview=None):
     """Turn the parts into a DayZ car model: LODs, proxies, export, .blend and a preview.
-    preview = (target, camera location) for models/<name>_preview.png."""
+    tracks: the running gear (Tracks here, or wheeled.Wheels): its proxies(), and its treads
+    reported if it has any. preview = (target, camera location) for models/<name>_preview.png."""
     lod1 = rv.new_collection("LOD1_Visual")
     lod1.objects.link(visual)
     rv.set_lod(visual, rv.LOD_VISUAL, resolution=1)
@@ -335,13 +336,22 @@ def assemble(name, visual, geometry, fire, view, memory_pts, tracks, crew_pos, b
         for o in c.objects:
             o.display_type = "WIRE"
 
+    if hasattr(tracks, "tread_layout"):
+        report_treads(name, tracks)
+    tris = sum(len(p.vertices) - 2 for p in visual.data.polygons)
+    print(f"[{name}] visual LOD: {len(visual.data.vertices)} verts, {tris} tris")
+    finish_export(name, model_path, preview)
+
+
+def report_treads(name, tracks):
     n, ps, m, pc, step = tracks.tread_layout()
     print(f"[{name}] treads: {n} shoes a run at {ps:.4f} m, {m} round each end at {pc:.4f} m; model.cfg "
           f"TreadTop offset1 {ps:.4f}, TreadFront angle1 rad {-math.degrees(step):.4f}; "
           f"script GetTreadPitch {tracks.tread_pitch():.4f}")
-    tris = sum(len(p.vertices) - 2 for p in visual.data.polygons)
-    print(f"[{name}] visual LOD: {len(visual.data.vertices)} verts, {tris} tris")
 
+
+def finish_export(name, model_path, preview):
+    """Export (turned round, see the module notes), save the .blend and render a preview"""
     rv.turn_around()
     rv.export_p3d(model_path)
     rv.turn_around()

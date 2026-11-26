@@ -32,12 +32,17 @@ class CustomMission: MissionServer
 {
 	static const vector DOZER_POS = "5060 0 2390";
 	static const vector EXCAVATOR_POS = "5048 0 2408";
+	static const vector COMBINE_POS = "5100 0 2405";	//!< further along the runway
 	static const float HEADING = 70;	//!< degrees, roughly along the runway
 	static const vector PLAYER_SPAWN = "8650 0 13280";	//!< new characters: the quarry floor by Severograd
 	static const float PLAYER_HEADING = 300;
+	static const string MOVE_FILE = "$profile:BigMachines/move_me.txt";	//!< "x z": see MoveIfAsked
 
 	protected BM_Bulldozer m_Dozer;
 	protected BM_Excavator m_Excavator;
+	protected BM_Combine m_Combine;
+	protected EntityAI m_InFront;
+	protected EntityAI m_Beside;
 	protected BM_TowerCrane m_Crane;
 	protected BM_TowerCraneMast m_Mast;
 	protected ItemBase m_Crate;
@@ -58,6 +63,7 @@ class CustomMission: MissionServer
 	{
 		m_Dozer = BM_Bulldozer.Cast(SpawnMachine("BM_Bulldozer", DOZER_POS));
 		m_Excavator = BM_Excavator.Cast(SpawnMachine("BM_Excavator", EXCAVATOR_POS));
+		m_Combine = BM_Combine.Cast(SpawnMachine("BM_Combine", COMBINE_POS));
 		SpawnCrane();
 	}
 
@@ -141,6 +147,45 @@ class CustomMission: MissionServer
 		return machine;
 	}
 
+	//! Test aid: while MOVE_FILE holds "x z", the next character to connect is moved beside the
+	//! machine nearest that spot (or onto the spot if there's none) and the file deleted
+	override void InvokeOnConnect(PlayerBase player, PlayerIdentity identity)
+	{
+		super.InvokeOnConnect(player, identity);
+		if (FileExist(MOVE_FILE))
+			GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).CallLater(MoveIfAsked, 3000, false, player);
+	}
+
+	void MoveIfAsked(PlayerBase player)
+	{
+		if (!player || !FileExist(MOVE_FILE))
+			return;
+		FileHandle f = OpenFile(MOVE_FILE, FileMode.READ);
+		string line;
+		FGets(f, line);
+		CloseFile(f);
+		DeleteFile(MOVE_FILE);
+		array<string> parts = new array<string>();
+		line.Split(" ", parts);
+		if (parts.Count() < 2)
+			return;
+		vector pos = Vector(parts[0].ToFloat(), 0, parts[1].ToFloat());
+		array<Object> nearby = new array<Object>();
+		GetGame().GetObjectsAtPosition(pos, 60, nearby, null);
+		foreach (Object o : nearby)
+		{
+			BM_Machine m = BM_Machine.Cast(o);
+			if (m)
+			{
+				pos = m.ModelToWorld("-5 0 1");		// off the driver's (left) side
+				break;
+			}
+		}
+		pos[1] = GetGame().SurfaceY(pos[0], pos[2]);
+		player.SetPosition(pos);
+		Print("[BMTest] moved a character to " + pos);
+	}
+
 	//! New characters start between the two machines, on the drivers' (left) side, facing them
 	override PlayerBase CreateCharacter(PlayerIdentity identity, vector pos, ParamsReadContext ctx, string characterName)
 	{
@@ -192,13 +237,13 @@ class CustomMission: MissionServer
 		}
 		Check(onGround == 4, t + "4 wheels on the ground (" + onGround + ")");
 		Check(Math.AbsFloat(m.GetOrientation()[1]) < 4 && Math.AbsFloat(m.GetOrientation()[2]) < 4, t + "standing level");
-		Check(m.GetFluidFraction(CarFluid.FUEL) > 0.99, t + "fuelled");
+		Check(m.GetFluidFraction(CarFluid.FUEL) > 0.99, t + "fuelled (" + m.GetFluidFraction(CarFluid.FUEL) + " of " + m.GetFluidCapacity(CarFluid.FUEL) + " l)");
 
 		int rollers = 0;
 		for (int i = 0; i < m.GetInventory().AttachmentCount(); i++)
 		{
 			EntityAI att = m.GetInventory().GetAttachmentFromIndex(i);
-			if (att.IsKindOf(m.GetRollerType()) && !m.CanReleaseAttachment(att))
+			if (m.IsRoller(att) && !m.CanReleaseAttachment(att))
 				rollers++;
 		}
 		Check(rollers == 4, t + "4 rollers fitted for good (" + rollers + ")");
@@ -224,8 +269,9 @@ class CustomMission: MissionServer
 		}
 		CheckMachine(m_Dozer, "-3 1.6 -0.85");
 		CheckMachine(m_Excavator, "-3 2.2 0.3");
-		m_ChainsRunning = 2;
+		m_ChainsRunning = 3;
 		TestCraneStart();
+		TestCombineStart();
 		m_ExcavatorStart = m_Excavator.GetPosition();
 
 		// Bulldozer: raise the blade; its collision must move up
@@ -395,6 +441,95 @@ class CustomMission: MissionServer
 			return;
 		Print("[BMTest] done");
 		GetGame().RequestExit(0);
+	}
+
+	// --- combine harvester: a chain of its own ---
+
+	//! The combines BM_Wrecks put in place of wrecks: standing on their wheels where the
+	//! wreck was, the wreck and its loose header gone. Then the test combine's header: lowered
+	//! and running it kills what is in front of it, not what is beside the machine
+	void TestCombineStart()
+	{
+		if (!m_Combine)
+		{
+			Print("[BMTest] FAIL combine missing");
+			ChainDone();
+			return;
+		}
+		CheckMachine(m_Combine, "-3 2.0 1.95");
+		int placed = 0;
+		int ok = 0;
+		int headersLeft = 0;
+		array<BM_Machine> machines = new array<BM_Machine>();
+		machines.Copy(BM_Machine.GetMachines());
+		foreach (BM_Machine m : machines)
+		{
+			if (!m.IsInherited(BM_Combine) || !m.HasHome())
+				continue;
+			placed++;
+			vector ori = m.GetOrientation();
+			bool upright = Math.AbsFloat(ori[1]) < 12 && Math.AbsFloat(ori[2]) < 12;
+			bool home = vector.Distance(m.GetPosition(), m.GetHomeBase()) < 1.5;
+			bool wreckGone = BM_Wrecks.FindWreck(m.GetHomeMatch(), m.GetHomePos()) == null;
+			if (upright && home && wreckGone && m.WheelCountPresent() == 4)
+				ok++;
+			else
+				Print("[BMTest] combine at " + m.GetPosition() + ": ori " + ori + ", " + vector.Distance(m.GetPosition(), m.GetHomeBase()) + " m from where it was put, wreck gone " + wreckGone);
+			array<Object> near = new array<Object>();
+			GetGame().GetObjectsAtPosition(m.GetHomePos(), BM_Wrecks.LOOSE_HEADER_RADIUS, near, null);
+			foreach (Object o : near)
+			{
+				// the search ignores height: sunk ones (BM_Wrecks.SINK) are found too
+				if (BM_Wrecks.Matches(o, BM_Wrecks.LOOSE_HEADER) && o.GetPosition()[1] > m.GetHomePos()[1] - 50)
+					headersLeft++;
+			}
+		}
+		Check(placed > 0, "combine: " + placed + " in place of wrecks");
+		Check(ok == placed, "combine: " + ok + " of " + placed + " upright on 4 wheels where the wreck was, the wreck gone");
+		Check(headersLeft == 0, "combine: no loose wreck headers left beside them (" + headersLeft + ")");
+
+		Check(m_Combine.GetJointPhase(0) > 0.99, "combine: the header comes raised");
+		m_Combine.EngineStart();
+		m_Combine.SetHeaderOn(true);
+		Check(m_Combine.IsHeaderOn(), "combine: the header runs with the engine on");
+		m_Combine.OnControl(BM_Control.RAISE, -1);
+		GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).CallLater(TestCombineLowered, 4500, false);
+	}
+
+	EntityAI SpawnZombie(vector modelPos)
+	{
+		return EntityAI.Cast(GetGame().CreateObjectEx("ZmbM_FarmerFat_Brown", m_Combine.ModelToWorld(modelPos), ECE_PLACE_ON_SURFACE));
+	}
+
+	void TestCombineLowered()
+	{
+		Check(m_Combine.GetJointPhase(0) < 0.01, "combine: header lowered (" + m_Combine.GetJointPhase(0) + ")");
+		m_InFront = SpawnZombie("0.5 0.3 3.95");
+		m_Beside = SpawnZombie("-3.5 0.3 0.5");
+		GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).CallLater(TestCombineCaught, 1500, false);
+	}
+
+	void TestCombineCaught()
+	{
+		Check(m_InFront && !m_InFront.IsAlive(), "combine: the running header killed the zombie in front of it");
+		Check(m_Beside && m_Beside.IsAlive(), "combine: the zombie beside the machine is still alive");
+		m_Combine.OnControl(BM_Control.RAISE, 1);
+		GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).CallLater(TestCombineRaised, 4500, false);
+	}
+
+	void TestCombineRaised()
+	{
+		m_Combine.OnControl(BM_Control.RAISE, 0);
+		m_InFront = SpawnZombie("-0.8 0.3 4.0");
+		GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).CallLater(TestCombineSpared, 1500, false);
+	}
+
+	void TestCombineSpared()
+	{
+		Check(m_InFront && m_InFront.IsAlive(), "combine: raised, the header leaves the zombie in front alone");
+		m_Combine.EngineStop();
+		Check(!m_Combine.IsHeaderOn(), "combine: the header stops with the engine");
+		ChainDone();
 	}
 
 	// --- tower crane: a chain of checks of its own, alongside the others ---

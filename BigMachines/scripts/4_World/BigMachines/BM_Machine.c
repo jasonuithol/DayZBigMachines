@@ -115,6 +115,24 @@ class BM_Machine extends CarScript
 		return null;
 	}
 
+	//! The roller (wheel) item for a slot: GetRollerType, unless a machine has more than one kind
+	string GetRollerTypeFor(string slot)
+	{
+		return GetRollerType();
+	}
+
+	//! One of the machine's own rollers (wheels): fitted for good
+	bool IsRoller(EntityAI item)
+	{
+		return item && item.IsKindOf(GetRollerType());
+	}
+
+	//! Drives on scripted tracks (TrackDrive); false: on the car simulation's own wheels
+	bool HasTracks()
+	{
+		return true;
+	}
+
 	//! Which joint a driver's control (BM_Control) works, or -1 if it doesn't work a joint
 	int ControlJoint(int control)
 	{
@@ -494,7 +512,7 @@ class BM_Machine extends CarScript
 	override void EOnSimulate(IEntity other, float dt)
 	{
 		super.EOnSimulate(other, dt);
-		if (!IsProxy() && dt > 0)
+		if (!IsProxy() && dt > 0 && HasTracks())
 			TrackDrive(dt);
 	}
 
@@ -782,7 +800,7 @@ class BM_Machine extends CarScript
 		foreach (string slot : slots)
 		{
 			if (!FindAttachmentBySlotName(slot))
-				GetInventory().CreateAttachmentEx(GetRollerType(), InventorySlots.GetSlotIdFromString(slot));
+				GetInventory().CreateAttachmentEx(GetRollerTypeFor(slot), InventorySlots.GetSlotIdFromString(slot));
 		}
 	}
 
@@ -801,7 +819,7 @@ class BM_Machine extends CarScript
 
 	override bool CanReleaseAttachment(EntityAI attachment)
 	{
-		if (attachment && attachment.IsKindOf(GetRollerType()))
+		if (IsRoller(attachment))
 			return false;
 		if (!super.CanReleaseAttachment(attachment))
 			return false;

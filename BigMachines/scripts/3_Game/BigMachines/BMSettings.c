@@ -4,7 +4,7 @@ class BMSettings
 {
 	static const string DIR = "$profile:BigMachines";
 	static const string PATH = DIR + "/BigMachinesSettings.json";
-	static const int VERSION = 1;
+	static const int VERSION = 2;		//!< 2: CombinePercent
 
 	int Version;
 	//! Percentage of the map's wrecks of each kind that are working machines instead (like
@@ -14,10 +14,11 @@ class BMSettings
 	float BulldozerPercent;
 	float ExcavatorPercent;
 	float TowerCranePercent;
-	//! A new bulldozer or excavator's fuel tank: a random fill between these, percent
+	float CombinePercent;
+	//! A new bulldozer, excavator or combine's fuel tank: a random fill between these, percent
 	float FuelPercentMin;
 	float FuelPercentMax;
-	//! A new bulldozer or excavator comes with a truck battery (if not, bring one to start it)
+	//! A new bulldozer, excavator or combine comes with a truck battery (if not, bring one to start it)
 	bool SpawnWithBattery;
 
 	protected static ref BMSettings s_Instance;
@@ -28,6 +29,7 @@ class BMSettings
 		BulldozerPercent = 25;
 		ExcavatorPercent = 25;
 		TowerCranePercent = 25;
+		CombinePercent = 25;
 		FuelPercentMin = 5;
 		FuelPercentMax = 30;
 		SpawnWithBattery = false;
@@ -64,7 +66,7 @@ class BMSettings
 			JsonFileLoader<BMSettings>.SaveFile(PATH, settings, error);
 		}
 		s_Instance = settings;
-		Print("[BigMachines] settings: bulldozers " + settings.BulldozerPercent + "%, excavators " + settings.ExcavatorPercent + "%, tower cranes " + settings.TowerCranePercent + "%");
+		Print("[BigMachines] settings: bulldozers " + settings.BulldozerPercent + "%, excavators " + settings.ExcavatorPercent + "%, tower cranes " + settings.TowerCranePercent + "%, combines " + settings.CombinePercent + "%");
 	}
 
 	//! The percentage for a kind of site (BM_WreckSite.DOZER etc.)
@@ -75,6 +77,7 @@ class BMSettings
 		case 0:	return BulldozerPercent;
 		case 1:	return ExcavatorPercent;
 		case 2:	return TowerCranePercent;
+		case 3:	return CombinePercent;
 		}
 		return 0;
 	}

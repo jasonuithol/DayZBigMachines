@@ -1,10 +1,11 @@
-//! A construction-machine wreck on the map (BM_WreckSites lists them)
+//! A machine wreck on the map (BM_WreckSites lists them)
 class BM_WreckSite
 {
 	static const int DOZER = 0;
 	static const int DIGGER = 1;
 	static const int CRANE = 2;
-	static const int KINDS = 3;
+	static const int COMBINE = 3;
+	static const int KINDS = 4;
 
 	int Kind;
 	string Match;		//!< its class name or model file, lower case
@@ -24,6 +25,7 @@ class BM_WreckSite
 		case DOZER:		return "BM_Bulldozer";
 		case DIGGER:	return "BM_Excavator";
 		case CRANE:		return "BM_TowerCrane";
+		case COMBINE:	return "BM_Combine";
 		}
 		return "";
 	}
@@ -36,12 +38,13 @@ class BM_WreckSite
 		case DOZER:		return 180;		// the wreck's blade is at its back (checked in game)
 		case DIGGER:	return 0;
 		case CRANE:		return 0;
+		case COMBINE:	return 0;		// faces its +Z, the header end, like the machine
 		}
 		return 0;
 	}
 }
 
-//! Some of the map's bulldozer and digger wrecks and tower cranes are working machines
+//! Some of the map's bulldozer, digger and combine harvester wrecks and tower cranes are working machines
 //! instead, the way some of the cars are drivable: BMSettings says what percentage of each.
 //! At every server start, machines that were destroyed are cleared away and, while there are
 //! fewer than that, new ones take the place of other wrecks, chosen at random. A machine
@@ -58,6 +61,8 @@ class BM_Wrecks
 	static const int SWEEP_MS = 1000;
 	static const vector SINK = "0 300 0";	//!< a tower crane is tall
 	static const float CLAIM_RADIUS = 1.0;	//!< a machine's home within this of a site is that site
+	static const string LOOSE_HEADER = "wreck_harvester_head.p3d";	//!< a combine wreck's header, lying by it
+	static const float LOOSE_HEADER_RADIUS = 15;	//!< ...this close: a working combine brings its own
 
 	protected static ref array<string> s_Matches = new array<string>();
 	protected static ref array<vector> s_Positions = new array<vector>();
@@ -179,7 +184,7 @@ class BM_Wrecks
 		}
 
 		// what's out there already
-		array<int> have = {0, 0, 0};		// per BM_WreckSite kind
+		array<int> have = {0, 0, 0, 0};		// per BM_WreckSite kind
 		array<BM_WreckSite> claimed = new array<BM_WreckSite>();
 		array<BM_Machine> machines = new array<BM_Machine>();
 		machines.Copy(BM_Machine.GetMachines());
@@ -194,6 +199,7 @@ class BM_Wrecks
 				continue;
 			}
 			Hide(m.GetHomeMatch(), m.GetHomePos());
+			HideLooseHeaders(m);
 			foreach (BM_WreckSite s : sites)
 			{
 				if (s.Match == m.GetHomeMatch() && vector.Distance(s.Pos, m.GetHomePos()) < CLAIM_RADIUS)
@@ -236,6 +242,21 @@ class BM_Wrecks
 		SendAll(null);
 	}
 
+	//! A combine in place of a wreck: the wreck's header lying near it goes too (the machine
+	//! has its own). Map objects are back where the map has them at every start.
+	static void HideLooseHeaders(BM_Machine machine)
+	{
+		if (!machine.IsInherited(BM_Combine))
+			return;
+		array<Object> objs = new array<Object>();
+		GetGame().GetObjectsAtPosition(machine.GetHomePos(), LOOSE_HEADER_RADIUS, objs, null);
+		foreach (Object o : objs)
+		{
+			if (Matches(o, LOOSE_HEADER) && !IsHidden(LOOSE_HEADER, o.GetPosition()))
+				Hide(LOOSE_HEADER, o.GetPosition());
+		}
+	}
+
 	//! The ground (or floor) under pos, once the wreck is out of the way
 	static vector Ground(vector pos)
 	{
@@ -270,11 +291,12 @@ class BM_Wrecks
 		if (!machine)
 			return null;
 		machine.SetHome(site.Match, site.Pos, base, yaw);
+		HideLooseHeaders(machine);
 		Print("[BigMachines] " + machine.GetType() + " in place of the " + site.Match + " at " + site.Pos);
 		return machine;
 	}
 
-	//! A bulldozer or excavator as found: rollers, oil and coolant, a little fuel, a battery if
+	//! A bulldozer, excavator or combine as found: its own wheels, rollers, oil and coolant, a little fuel, a battery if
 	//! the settings say so
 	static BM_Machine PlaceVehicle(string type, vector base, float yaw)
 	{

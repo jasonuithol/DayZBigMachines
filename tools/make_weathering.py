@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Draws the Big Machines' weathered surface textures: tiling squares (TILE metres across) of
-worn paint, dark steel, track steel and concrete, each as a DayZ texture set:
+worn paint (yellow; the combine's mint green and cream), dark steel, track steel and concrete,
+each as a DayZ texture set:
 
     textures/bm_<name>_co.png     colour
     textures/bm_<name>_nohq.png   normal map (DirectX style: green = -Y, as DayZHandCart)
@@ -231,6 +232,11 @@ SETS = {
                                         rust=(92, 50, 28), grime=(40, 34, 28), mud_amount=0.6,
                                         paint_spec=0.25, paint_gloss=0.3), 8.0),
     "concrete": (concrete, dict(seed=41), 5.0),
+    # the combine harvester: the map wreck's faded mint green and the cream of its grain tank
+    "paint_mint": (painted_metal, dict(seed=53, paint=(112, 160, 122), chip_amount=0.6, rust_amount=0.55,
+                                       grime_amount=0.7), 3.0),
+    "paint_cream": (painted_metal, dict(seed=59, paint=(214, 207, 186), chip_amount=0.5, rust_amount=0.5,
+                                        grime_amount=0.8), 3.0),
 }
 
 RVMAT = """ambient[]={{1,1,1,1}};

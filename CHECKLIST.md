@@ -19,10 +19,10 @@ on 2026-11-24 (DayZ stable 1.30). The scan mission is in `tools/probe/init.c`, a
 | 5 | Crawler crane | `Wreck_CrawlerCrane_Cabin` / `_Tracks` / `_Arm` (`structures_takistan`, 3 parts) | - | - | - | 7 | 7 |
 | 6 | Tower crane | `Land_Construction_Crane` | 6 | - | 3 | 13 | 22 |
 | 7 | Concrete mixer | `Concrete_Mixer_01.p3d` (a proxy of a Nasdara building site) | - | - | - | 1 | 1 |
+| 8 | Combine harvester | `Land_Wreck_Harverster` (sic; loose headers `wreck_harvester_head.p3d` beside them, headers on trailers `Land_Wreck_Harvester_head_trailer`; [`data/farm_vehicles.csv`](data/farm_vehicles.csv), scanned 2026-11-25) | 31 | 53 | 5 | - | 89 |
 
-Maybe later (farm machinery and port equipment, not construction):
-tractor `Land_Wreck_Tractor` (49 / 81 / 69 / 75), combine harvester `Land_Wreck_Harverster`
-(31 / 53 / 5 / 0), harbour cranes `Land_Pier_Crane_A/B` (23 / 0 / 14 / 3), Sakhal's
+Maybe later (farm machinery and port equipment):
+tractor `Land_Wreck_Tractor` (49 / 81 / 69 / 75), harbour cranes `Land_Pier_Crane_A/B` (23 / 0 / 14 / 3), Sakhal's
 `Pier_Crane2` gantries (13) and stockyard shiploaders (2).
 
 ## Progress
@@ -174,6 +174,46 @@ To do for the tower crane:
   top get-on point is just in from the notch edge (you must stand inward of it)
 - [ ] The ladder's rungs seemed closer together near the top (playtest); not looked into yet
 - [ ] Hook height is fixed to 30 m of travel: on a slope the hook stops short of or above the ground
+
+### Combine harvester status (2026-11-25)
+
+The map wreck restored (reference shots: `data/reference/combine_wreck_*.png`): pale mint green
+body, cream grain tank and engine housing, glass cab on a deck at the front with a ladder up the
+left, big lugged drive wheels at the front, small steering wheels at the back, the unloading
+auger along the left side. blender/build_combine.py; weathered paint_mint / paint_cream
+(tools/make_weathering.py); the header 6 m wide (the wreck's is 7.8 m: too wide for DayZ's roads).
+
+Real wheels (blender/wheeled.py), as vanilla cars: the suspension moves a parent bone
+(susp_wheel_X_Y), the wheel bone only spins (the hatchback's ODOL); the wheels sit on the ground
+and stay still parked. The car simulation can't steer with the back axle (a negative steering
+angle crashes the game), so it steers 1 degree and BM_Combine.SteerBack sets the yaw rate from
+speed and steering each physics step; the back wheels turn for show.
+
+Controls: PageUp / PageDown header (comes raised), Home / End unloading auger, Insert / Delete
+header running (engine on). Running and lowered, it kills zombies, animals and players other
+than the driver within its reach (BM_Combine.CatchTick, server, every 0.1 s).
+
+Verified: Autobot (2026-11-25): drives, 4.9 km/h in 1st at 2300 rpm; forward with steering right
+turned 293 -> 344 deg, reversing turns the other way; header down, running, reel spinning; a
+zombie in front killed, one beside the cab and one in front of the raised header spared.
+Headless suite (76 ok): the test combine passes CheckMachine; 8 of Chernarus's 31 combine
+wrecks replaced at 25%, all upright on 4 wheels where the wreck was, wrecks and loose headers
+gone; the header kills / spares and stops with the engine.
+
+Driven in game (2026-11-26, local server): all 31 Chernarus combines placed at 100%. Fixed from
+that: wheels, reel and back-wheel steer anims had the wrong sign (the back wheels turn against the
+turn); the unloading auger swivels on the tank roof (front left) and climbs back at ~35 deg to a
+cradle post, swinging out to the left; a spoked steering wheel facing the driver. It caught on
+unseen bumps, even on roads: the header's physics sat 12 cm off the ground (0.44 m raised), so
+the Geometry LOD's header and feeder now sit 0.3 m above the visual, the header's front a ramp.
+The test mission's `$profile:BigMachines/move_me.txt` ("x z") puts the next character to connect
+beside the machine nearest that spot.
+
+To do:
+- [ ] Snagging on roads after the header's collision was lifted (not driven far yet)
+- [ ] The back wheels' steer look on other players' clients (GetSteering on a proxy?)
+- [ ] Header and threshing sounds; blood when it catches something
+- [ ] A View Pilot LOD for the cab
 
 ## On the map (2026-11-24)
 
